@@ -25,7 +25,7 @@
    - Визначення породи тварин на фото
    - Автоматичне сортування фотографій у галереї за категоріями
 
-<img src='readme_images/classification.png' style="width: 300;">
+<img src='readme_images/classification.png' width='300'>
 
 ### 3. Сегментація зображень
    - Відокремлення органів у медичних знімках
