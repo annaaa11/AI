@@ -1,5 +1,6 @@
 .venv/*
-.idea/
+.idea/*
+.env
 __pycache__/*
 practice/*
 .env
