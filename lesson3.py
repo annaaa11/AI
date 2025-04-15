@@ -43,7 +43,7 @@ answer_chain = answer_prompt | llm | StrOutputParser()
 
 chain = topic_chain | answer_chain
 
-#print(chain.invoke({"question": "Коли була висадка на місяць?"}))
+print(chain.invoke({"question": "Коли була висадка на місяць?"}))
 
 
 
