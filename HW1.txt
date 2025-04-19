@@ -2,6 +2,8 @@
 
 https://serper.dev/
 
+https://github.com/
+
 Тут реєструйтесь через акаунт github
 https://authkit.streamlit.io/sign-up
 
