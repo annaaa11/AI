@@ -1,156 +1,62 @@
+
+# Відкрийте зображення data/lesson2/darken.png
+# Переведіть його в формат HSV
+# Далі для каналу value зробіть одну з двох обробок
+# 1. Застосуйте вирівнювання гістограм
+# 2. Збільшіть значення десь на 20-50%, для цього
+# o Помножте усі значення value на відповідне
+# число
+# o Оскільки ви вийдете за межі діапазону 0-255
+# застосуйте
+# np.clip(value, 0, 255)
+# o Оскільки результат не ціле число
+# value.astype(np.unit8)
+# o Напишіть для цієї частини функцію з
+# utils.trackbar_decorator
+# Переведіть результат назад у формат BGR
+
 import cv2
+import numpy as np
 import utils
-#
-# img = cv2.imread("data/lesson2/marbles.png")
-# # # кольорове зображення у форматі bgr
-# #
-# # # print(img)
-# # #
-# # # print(img.shape)
-# # # print(img.dtype)
-# # #
-# # # blue = img[:, :, 0]
-# # # green = img[:, :, 1]
-# # # red = img[:, :, 2]
-# # #
-# # # # # замінити червоний та залений на 0
-# # # # img[:, :, 1] = 0
-# # # # img[:, :, 2] = 0
-# # #
-# # # # замінити синій на 0
-# # # img[:, :, 0] = 0
-# #
-# #
-# #
-# # cv2.imshow("image", img)
-# # cv2.waitKey(0)
-#
-#
-# img_bgr = cv2.imread("data/lesson2/lego.jpg")
-#
-# # конвертація в HSV
-# img_hsv = cv2.cvtColor(img_bgr,
-#                        cv2.COLOR_BGR2HSV
-#                        )
-#
-# # print(img_hsv)
-# #
-# # print(img_hsv.shape)
-# # print(img_hsv.dtype)
-#
-# # utils.lesson2_hsv_range(img_bgr)
-#
-#
-# # кольорова сегментація
-#
-# # # конвертація в HSV
-# # img_hsv = cv2.cvtColor(img_bgr,
-# #                        cv2.COLOR_BGR2HSV
-# #                        )
-# #
-# # # межі червоного кольору
-# # lower = (0, 150, 180)
-# # upper = (10, 255, 255)
-# #
-# # # кольорова маска
-# # mask = cv2.inRange(img_hsv, lower, upper)
-# #
-# # print(mask)
-# # print(mask.shape)
-# # print(mask.dtype)
-# #
-# # cv2.imshow("mask", mask)
-# # cv2.imshow("original", img_bgr)
-# #
-# # cv2.waitKey(0)
-#
-#
-# # підбір параметрів
-# import utils
-#
-#
-# @utils.trackbar_decorator(min_h=(0, 180), min_s=(0, 255), min_v=(0, 255),
-#                           max_h=(0, 180), max_s=(0, 255), max_v=(0, 255))
-# def func1(img, min_h, min_s, min_v, max_h, max_s, max_v):
-#     lower = (min_h, min_s, min_v)
-#     upper = (max_h, max_s, max_v)
-#
-#     # конвертацію в hsv
-#     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-#
-#     # маска
-#     mask = cv2.inRange(hsv, lower, upper)
-#
-#     return mask
-#
-#
-# img = cv2.imread("data/lesson2/lego.jpg")
-#
-# func1(img)
-#
-#
-# # Відкрийте зображення data/lesson2/marbles.png.
-# # Використайте кольорову сегментацію для отримання масок до
-# # кульок:
-# #  синього кольору
-# #  зеленого і червоного
-# #  чорного
-# #  білого
-# #  усіх кульок
-#
-# img = cv2.imread("data/lesson2/marbles.png")
-#
-# lower = (100, 100, 100)
-# upper = (125, 255, 255)
-# hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-# mask = cv2.inRange(hsv, lower, upper)
-# # cv2.imshow("img", img)
-# # cv2.imshow("img1", mask)
-# # cv2.waitKey(0)
-# new_mask = mask.astype(bool)
-#
-# img[~new_mask] = 0
-#
-# cv2.imshow("img", img)
-#
-# cv2.waitKey(0)
 
-# Відкрийте зображення data/lesson2/marbles.png.
-# Використайте кольорову сегментацію для отримання масок до
-# кульок:
-#  синього кольору
-#  зеленого і червоного
-#  чорного
-#  білого
-#  усіх кульок
+#Функція збільшує яскравість (канал Value) у форматі HS
+@utils.trackbar_decorator(brightness=(20, 100))  # Відсоток збільшення яскравості (0-100%)
+def adjust_brightness(image_hsv, brightness):
 
-img = cv2.imread("data/lesson2/marbles.png")
+    # канал Value
+    value = image_hsv[:, :, 2]
+    # Збільшуємо яскравість
+    value = value * (1 + brightness / 100.0)
+    value = np.clip(value, 0, 255)
+    image_hsv[:, :, 2] = value.astype(np.uint8)
 
-lower = (50, 20, 50)
-upper = (75, 255, 255)
-
-hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-mask_green = cv2.inRange(hsv, lower, upper)
+    result_brightness = cv2.cvtColor(image_hsv, cv2.COLOR_HSV2BGR)
+    return result_brightness
 
 
-cv2.imshow("img", img)
-cv2.imshow("img_green", mask_green)
+image = cv2.imread('data/lesson2/darken.png')
+
+# Перетворення в HSV
+image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+
+# Вирівнювання гістограми
+hsv_equalized = image_hsv.copy()  # Створюємо копію для вирівнювання, щоб не змінити image_hsv
+value = hsv_equalized[:, :, 2]  # канал Value
+equalized_value = cv2.equalizeHist(value)
+hsv_equalized[:, :, 2] = equalized_value
+result_equalized = cv2.cvtColor(hsv_equalized, cv2.COLOR_HSV2BGR)  # Перетворюємо в BGR
 
 
-lower_r = (0, 100, 180)
-upper_r = (10, 255, 255)
-
-#hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-mask_red = cv2.inRange(hsv, lower_r, upper_r)
 
 
-#cv2.imshow("img", img)
-cv2.imshow("img_red", mask_red)
 
-#new_mask = mask_green | mask_red
+# Відображення результатів
+cv2.imshow("Original", image)  # Показуємо оригінальне зображення
+cv2.imshow("Histogram Equalized", result_equalized) # Показуємо зображення з вирівняною гістограмою
 
-new_mask = cv2.bitwise_or(mask_green, mask_red)
 
-cv2.imshow("new_mask", new_mask)
+# збільшення яскравості
+result_brightness = adjust_brightness(image_hsv)
+cv2.imshow("Brightness Adjusted", result_brightness)  # Показуємо зображення зі збільшеною яскравістю
 
 cv2.waitKey(0)
