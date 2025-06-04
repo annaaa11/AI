@@ -1,106 +1,64 @@
 
-# 1. Відкрийте відео з файлу data\lesson8\meetings.mp4
-# Застосуйте детекцію та виведіть результат, підберіть
-# параметри
-# Можете змінити розмір кадру для кращої візуалізації
-# cv2.resize()
+# Відкрийте зображення data/lesson_seg/tumor1.jpg
+# Проведіть сегментацію зображення використовуючи
+# модель data/lesson_seg/brain-tumor-seg.jpg
+# Визначте площу пухлини в пікселях.
+# Визначте площу в
+# (1 піксель – 0,0025
+# )
+# В залежності від площі присвойте пухлині певний тип
+#  <10 – small
+#  10-25 – middle
+#  >25 – large
+# Покажіть пухлину – за допомогою маски усі лишні
+# пікселі зробіть 0, а як назву зображення використайте її тип
 
-import ultralytics
-import torch
-import langchain
 import cv2
-
-model = ultralytics.YOLO("yolo11s.pt")
-cap = cv2.VideoCapture(r"data\lesson8\meetings.mp4")
-
-while True:
-     ret, frame = cap.read()
-     frame = cv2.resize(frame, None, fx=0.3, fy=0.3)
-
-     if not ret:
-         break
-     results = model.track(
-         frame,
-         conf=0.35,  # мінімальний відсоток з яким можна визначити об'єкт
-         iou=0.55,  # якщо для двох рамок iuo менший за це число, то вважаємо що це 2 різних об'єкта
-         # classes=[14]  # індекси класів(тип об'єктів) які будуть детектитись
-     )
-
-     result = results[0]
-
-     #print(result)
-
-     img2 = result.plot()
-     cv2.imshow("img plot", img2)
-     #cv2.waitKey(0)
-
-     # print(result.boxes)
-     # boxes = result.boxes
-     # names = result.names
-
-
-     if cv2.waitKey(1) & 0xFF == ord('q'):
-         break
-
-
-# 2. Відкрийте відео з файлу data\lesson8\meetings.mp4
-# Застосуйте детекцію та почніть показувати відео з
-# моменту, коли людей стало 5
-
-
 import ultralytics
-import torch
-import langchain
-import cv2
+import numpy as np
 
-model = ultralytics.YOLO("yolo11s.pt")
+# Завантаження зображення з пухлиною
+img = cv2.imread("data/lesson_seg/tumor1.jpg")
 
-cap = cv2.VideoCapture(r"data\lesson8\meetings.mp4")
+# Завантаження моделі сегментації пухлин
+model = ultralytics.YOLO("data/lesson_seg/brain-tumor-seg.pt")
 
-# ret, frame = cap.read()
-# frame = cv2.resize(frame, None, fx=0.3, fy=0.3)
-# results = model.track(
-#          frame,
-#          conf=0.35,  # мінімальний відсоток з яким можна визначити об'єкт
-#          iou=0.55,  # якщо для двох рамок iuo менший за це число, то вважаємо що це 2 різних об'єкта
-#          # classes=[14]  # індекси класів(тип об'єктів) які будуть детектитись
-#      )
-#
-# result = results[0]
-# print(result) ##0: 'person',
-#
-#
-while True:
-     ret, frame = cap.read()
-     frame = cv2.resize(frame, None, fx=0.3, fy=0.3)
+# Сегментація
+results = model.predict(img)
+result = results[0]
 
-     if not ret:
-         break
-     results = model.track(
-         frame,
-         conf=0.35,  # мінімальний відсоток з яким можна визначити об'єкт
-         iou=0.55,  # якщо для двох рамок iuo менший за це число, то вважаємо що це 2 різних об'єкта
-         classes=[0]  # 0: 'person'
-     )
+# Отримання маски
+if result.masks is None:
+    print("пухлина не знайдена.")
+    exit()
 
-     result = results[0]
+masks = result.masks.data.numpy().astype(bool)
+mask = masks[0]
 
+# Обчислення площі пухлини в пікселях
+area_pixels = mask.sum()
+pixel_to_meter = 0.0025
+area_meters = area_pixels * pixel_to_meter
 
-     # Подсчёт количества людей
-     if result and result.boxes is not None:
-         num_people = len(result.boxes)
-     else:
-         num_people = 0
+# Класифікація пухлини за площею
+if area_meters < 10:
+    tumor_type = "small"
+elif area_meters <= 25:
+    tumor_type = "middle"
+else:
+    tumor_type = "large"
 
-     # Показываем изображение только если 5 или больше человек
-     if num_people >= 5:
-         img2 = result.plot()
-         cv2.imshow("img plot", img2)
+print(f"Площа пухлини в пікселях: {area_pixels}")
+print(f"Площа пухлини в см2: {area_meters:.2f}")
+print(f"Тип пухлини: {tumor_type}")
 
-         if cv2.waitKey(1) & 0xFF == ord('q'):
-             break
+# Виділення пухлини: інші пікселі зануляємо
 
-cap.release()
+tumor_only = img.copy()
+tumor_only[~mask] = 0
+tumor_only[mask] = img[mask]
+
+# Показ результату
+cv2.imshow(tumor_type, tumor_only)
+cv2.waitKey(0)
 cv2.destroyAllWindows()
-     #cv2.waitKey(1)
-
