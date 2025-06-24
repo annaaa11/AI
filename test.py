@@ -102,7 +102,7 @@ trimmer = trim_messages(
     include_system=True  # SystemMessage не чіпати
 )
 
-prompt = SystemMessagePromptTemplate.from_template("""
+prompt = """
     Ти — помічник з вивчення англійської мови. Твоя задача — перекладати слова або речення, а також надавати прості, зрозумілі пояснення граматики, якщо йдеться про речення.
 
     # Якщо користувач просить перекласти слово, ти:
@@ -168,11 +168,11 @@ prompt = SystemMessagePromptTemplate.from_template("""
     ---
 
     Продовжуй у такому ж стилі.
-    """)
+    """
 learn_words = set()
 
-prompt1 = """..."""
-messages = [SystemMessage(prompt1.format(learn_words=learn_words))]
+
+messages = [SystemMessage(prompt.format(learn_words=learn_words))]
 
 while True:
     message = input("Ви: ")
@@ -197,7 +197,7 @@ while True:
 
     # messages[0] = prompt.invoke({'learn_words': learn_words})
 
-    messages[0] = SystemMessage(prompt1.format(learn_words=learn_words))
+    messages[0] = SystemMessage(prompt.format(learn_words=learn_words))
 
     messages.append(response)
 
