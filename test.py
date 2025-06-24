@@ -118,7 +118,7 @@ menu_text = """
 """
 
 # Системне повідомлення
-system_prompt = SystemMessagePromptTemplate.from_template("""
+system_prompt = """
 Ти — ввічливий чат-бот для замовлення піци. 
 
 Твої функції:
@@ -136,9 +136,9 @@ system_prompt = SystemMessagePromptTemplate.from_template("""
 - Якщо треба показати меню — виведи його у зручному вигляді.
 - Якщо замовлення прийнято — підтверди його.
 - Якщо підтверджено — виведи повне замовлення і суму.
-""")
+"""
 
-#prompt = """..."""
+
 messages = [SystemMessage(system_prompt.format(menu=menu_text))]
 
 # Тріммер
@@ -152,7 +152,7 @@ trimmer = trim_messages(
 )
 
 while True:
-    user_input = input("Ви: ").strip()
+    user_input = input("Ви: ")
     if user_input == '':
         break
 
