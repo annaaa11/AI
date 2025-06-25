@@ -1,107 +1,96 @@
-#
-# Напишіть модель для генерації персонального плану
-# тренувань з двох ланцюгів:
-#  Перший ланцюг отримує мету тренування(схуднення,
-# набір м’язів, тощо) та повертає список вправ
-#  Другий ланцюг отримує список вправ, рівень
-# підготовки користувача(низький, середній,
-# професіонал) та кількість часу на тиждень(в годинах)
-# і повертає план тренувань
 
+# Напишіть чат бота, з інструментом по рекомендації
+# ресторанів.
+# Для цього скористайтесь
+# GoogleSerperAPIWrapper(type="places")
+# Інструмент повинен отримувати запит для пошуку та
+# повертати таку інформацію про ресторани:
+#  назва
+#  посилання на сайт(якщо є)
+#  рейтинг
 
-from langchain_google_genai import GoogleGenerativeAI
+################
+
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
-from langchain.output_parsers import ResponseSchema, StructuredOutputParser
+from langchain_community.utilities import GoogleSerperAPIWrapper
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import (
+    HumanMessage,
+    AIMessage,
+    SystemMessage,
+)
 
 import dotenv
 import os
-import json
 
-# завантажити api ключі з .env
+# завантаження API ключів з .env
 dotenv.load_dotenv()
-api_key = os.getenv('GEMINI_API_KEY')
 
-# створення моделі
-llm = GoogleGenerativeAI(
+api_key = os.getenv('GEMINI_API_KEY')
+api_key_serper = os.getenv('SERPER_API_KEY')
+
+# створення LLM моделі
+llm = ChatGoogleGenerativeAI(
     model='gemini-2.0-flash',
     google_api_key=api_key,
 )
 
-# ---------- Перший ланцюг: генерація списку вправ ----------
+# створення інструмента для пошуку ресторанів
+searcher = GoogleSerperAPIWrapper(api_key_serper=api_key_serper, type="places")
 
-# схема для першого ланцюга
-schemas_exercises = [
-    ResponseSchema(name='goal', description='мета тренування'),
-    ResponseSchema(name='exercises', description='список рекомендованих вправ')
-]
-
-parser_exercises = StructuredOutputParser.from_response_schemas(schemas_exercises)
-instructions_exercises = parser_exercises.get_format_instructions()
-
-prompt_exercises = PromptTemplate.from_template(
+def restaurant_recommendation(query: str):
     """
-    Ти персональний тренер. Твоя задача — створити список вправ
-    для користувача відповідно до його мети тренування.
+    Пошук ресторанів за запитом користувача.
 
-    Мета тренування: {goal}
+    :param query: str, запит користувача (типу "ресторан Київ піца")
+    :return: list, інформація про знайдені ресторани
+    """
+    result = searcher.results(query)
+    #print(result)
 
-    Формат відповіді:
-    {instructions}
-    """,
-    partial_variables={"instructions": instructions_exercises}
+    restaurants = []
+    if 'places' in result:
+        for place in result['places']:
+            new_data = {'title': place['title'], 'website': place['website'], 'rating': place['rating']}
+            #print(new_data)
+            restaurants.append(new_data)
+
+    return restaurants
+
+# створення агента
+agent = create_react_agent(
+    model=llm,
+    tools=[restaurant_recommendation]
 )
 
-chain_exercises = prompt_exercises | llm | parser_exercises
+# початкове повідомлення системи
+messages = {"messages": [
+    SystemMessage("""
+    Ти чат-бот, який допомагає рекомендувати ресторани.
+    Твоя задача — отримати від користувача запит для пошуку ресторанів
+    і видати перелік ресторанів з назвою, посиланням на сайт (якщо є)
+    та рейтингом. Якщо запит не про ресторан або місце — виведи повідомлення:
+    «немає відповідної інформації».
+    Кожен ресторан виводь з нового рядка у такому форматі:
+    Назва: ...
+    Сайт: ...
+    Рейтинг: ...
+    """)
+]}
 
-# ---------- Другий ланцюг: генерація плану тренувань ----------
+# основний цикл чату
+while True:
+    user_input = input("Ви: ")
 
-schemas_plan = [
-    ResponseSchema(name='plan', description='детальний план тренувань на тиждень')
-]
+    if user_input.strip() == '':
+        break
 
-parser_plan = StructuredOutputParser.from_response_schemas(schemas_plan)
-instructions_plan = parser_plan.get_format_instructions()
+    user_message = HumanMessage(user_input)
+    messages["messages"].append(user_message)
 
-prompt_plan = PromptTemplate.from_template(
-    """
-    Ти персональний тренер. Твоя задача — створити детальний план
-    тренувань на тиждень відповідно до рівня підготовки користувача,
-    доступного часу та списку вправ.
+    messages = agent.invoke(messages)
 
-    Рівень підготовки: {level}
-    Час на тиждень (годин): {hours}
-    Список вправ: {exercises}
-
-    Формат відповіді:
-    {instructions}
-    """,
-    partial_variables={"instructions": instructions_plan}
-)
-
-chain_plan = prompt_plan | llm | parser_plan
-
-# ---------- Виклик ----------
-
-# приклад вхідних даних
-user_goal = "схуднення"
-user_level = "середній"
-user_hours = 4
-
-# перший ланцюг — отримати список вправ
-response_exercises = chain_exercises.invoke({
-    "goal": user_goal
-})
-
-print("Список вправ:")
-print(response_exercises['exercises'])
-
-# другий ланцюг — отримати план тренувань
-response_plan = chain_plan.invoke({
-    "level": user_level,
-    "hours": user_hours,
-    "exercises": response_exercises['exercises']
-})
-
-print("\nПлан тренувань:")
-print(response_plan['plan'])
-
+    # відповідь бота
+    ai_message = messages["messages"][-1]
+    print(ai_message.content)
