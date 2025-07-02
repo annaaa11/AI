@@ -14,8 +14,6 @@
 #  добавте ID у json файл
 #  перевірте агента
 
-
-
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from pinecone import Pinecone, ServerlessSpec
 from langchain_core.documents import Document
