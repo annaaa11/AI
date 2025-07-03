@@ -82,6 +82,7 @@ uploaded_file = st.file_uploader("Завантажте файл (формат .t
 if uploaded_file is not None:
     # Читаємо текст з файлу
     text = uploaded_file.read().decode("utf-8")
+    text = text.replace('\r', '')
 
     # Розбиваємо на "сирі" блоки по трьох порожніх рядках
     raw_blocks = text.split("\n\n\n")
