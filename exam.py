@@ -23,7 +23,7 @@ API_KEY = os.getenv("API_KEY", "1679ef25f9e643d5a8a73d5e1aa3f93e")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY",
                              "pcsk_22597x_NH2uDbw3R8bgndiWyRJcjpWirjwdcZaG99FTHLwPLH7yQnoAQ9Gd3EfWicAUWaF")
 
-# Инициализация Pinecone
+# Инициализация Pinecon
 try:
     pc = Pinecone(api_key=PINECONE_API_KEY)
     index_name = "crypto-tweets"
