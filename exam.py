@@ -47,7 +47,6 @@ except Exception as e:
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
 import en_core_web_sm
-
 nlp = en_core_web_sm.load()
 
 #nlp = spacy.load("en_core_web_trf")
