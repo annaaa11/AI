@@ -45,7 +45,12 @@ except Exception as e:
     raise
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
-nlp = spacy.load("en_core_web_trf")
+
+import en_core_web_sm
+
+nlp = en_core_web_sm.load()
+
+#nlp = spacy.load("en_core_web_trf")
 
 # Инициализация DistilBERT для анализа тональности без sentencepiece
 tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
