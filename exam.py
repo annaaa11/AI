@@ -3,7 +3,7 @@ import pinecone
 from pinecone import Pinecone, ServerlessSpec
 from sentence_transformers import SentenceTransformer
 import spacy
-from transformers import pipeline
+from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,7 +23,7 @@ API_KEY = os.getenv("API_KEY", "1679ef25f9e643d5a8a73d5e1aa3f93e")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY",
                              "pcsk_22597x_NH2uDbw3R8bgndiWyRJcjpWirjwdcZaG99FTHLwPLH7yQnoAQ9Gd3EfWicAUWaF")
 
-# Инициализация Pinecon
+# Инициализация Pinecone
 try:
     pc = Pinecone(api_key=PINECONE_API_KEY)
     index_name = "crypto-tweets"
@@ -45,7 +45,11 @@ except Exception as e:
 
 model = SentenceTransformer("all-MiniLM-L6-v2")
 nlp = spacy.load("en_core_web_sm")
-sentiment_analyzer = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
+
+# Инициализация DistilBERT для анализа тональности без sentencepiece
+tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+sentiment_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
+sentiment_analyzer = pipeline("sentiment-analysis", model=sentiment_model, tokenizer=tokenizer)
 
 
 # Предобработка текста
