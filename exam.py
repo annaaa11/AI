@@ -64,7 +64,7 @@ def clean_text(text):
 
 # Сбор твитов
 def fetch_tweets(since_date, target_count=100):
-    url = "https://api.twitterapi.io/v1/search/tweets"
+    url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     params = {
         "q": (
             "crypto OR cryptocurrency OR blockchain OR token OR coin OR DeFi OR NFT OR Web3 OR metaverse OR GameFi OR DAO OR "
