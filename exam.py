@@ -217,5 +217,4 @@ def main():
             logger.error(f"Streamlit error: {e}")
 
 
-if __name__ == "__main__":
-    main()
+main()
