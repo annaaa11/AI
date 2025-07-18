@@ -17,3 +17,5 @@ import os
 
 
 nlp = spacy.load("en_core_web_sm")
+
+print(nlp("good morning"))
