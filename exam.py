@@ -568,7 +568,6 @@ def fetch_tweets(since_date, target_count):
             data = response.json()
             tweets = data.get("tweets", [])
             if tweets:
-                # Логирование структуры первого твита для отладки
                 logger.info(f"Tweet object structure: {json.dumps(tweets[0], indent=2)}")
             all_tweets.extend(tweets)
 
@@ -591,7 +590,6 @@ def save_to_pinecone(tweets):
     sentiments = analyze_sentiment(tweet_texts)
     vectors = []
     for tweet, embedding, sentiment in zip(tweets, tweet_embeddings, sentiments):
-        # Попытка получить имя пользователя с обработкой ошибок
         try:
             author = tweet.get("user", {}).get("screen_name", "unknown")
             if author == "unknown":
@@ -641,7 +639,6 @@ def analyze_sentiment(tweet_texts):
 
 # Анализ трендов
 def analyze_trends(project_names, days=3):
-    since_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
     trends = []
     for project in project_names:
         query_embedding = model.encode(project)
@@ -651,14 +648,23 @@ def analyze_trends(project_names, days=3):
             "matches"] else 0
         trends.append({"project_name": project, "mentions": mentions, "avg_sentiment": avg_sentiment})
 
+    logger.info(f"Trends before filtering: {trends}")
     df = pd.DataFrame(trends)
-    df["growth"] = df["mentions"] / df["mentions"].shift(1) * 100
-    return df[(df["growth"] > 100) & (df["avg_sentiment"] > 0.5)]
+    if df.empty:
+        logger.warning("No trends found; DataFrame is empty")
+        return df
+
+    # Расслабление критерия роста с 100 до 50
+    df["growth"] = df["mentions"] / df["mentions"].shift(1).replace(0, 1) * 100  # Избежание деления на ноль
+    filtered_df = df[(df["growth"] > 50) & (df["avg_sentiment"] > 0.5)]
+    logger.info(f"Filtered trends DataFrame: {filtered_df.to_dict()}")
+    return filtered_df
 
 
 # Визуализация с Matplotlib
 def visualize_trends(df):
-    if df.empty:
+    if df.empty or "mentions" not in df.columns:
+        logger.warning("Cannot visualize: DataFrame is empty or missing 'mentions' column")
         return None
 
     plt.figure(figsize=(10, 6))
@@ -700,6 +706,10 @@ def main():
             tweet_texts = [tweet["text"] for tweet, _ in relevant_tweets]
 
             project_names = extract_project_names(tweet_texts)
+            if not project_names:
+                st.write("No project names extracted from tweets.")
+                return
+
             trending_df = analyze_trends(project_names, days=3)
 
             fig = visualize_trends(trending_df)
@@ -708,16 +718,20 @@ def main():
             else:
                 st.write("No trending projects found.")
 
-            st.write("Trending Crypto Projects:")
-            st.dataframe(trending_df[["project_name", "mentions", "avg_sentiment"]])
+            if not trending_df.empty:
+                st.write("Trending Crypto Projects:")
+                st.dataframe(trending_df[["project_name", "mentions", "avg_sentiment"]])
 
-            top_project = trending_df.iloc[0]["project_name"] if not trending_df.empty else None
-            if top_project:
-                st.write(f"Sample Tweets for {top_project}:")
-                results = index.query(vector=model.encode(top_project).tolist(), top_k=5, include_metadata=True)
-                for r in results["matches"]:
-                    st.write(
-                        f"- {r['metadata']['text']} (Likes: {r['metadata']['likes']}, Sentiment: {r['metadata']['sentiment']:.2f})")
+                top_project = trending_df.iloc[0]["project_name"] if not trending_df.empty else None
+                if top_project:
+                    st.write(f"Sample Tweets for {top_project}:")
+                    results = index.query(vector=model.encode(top_project).tolist(), top_k=5, include_metadata=True)
+                    for r in results["matches"]:
+                        st.write(
+                            f"- {r['metadata']['text']} (Likes: {r['metadata']['likes']}, Sentiment: {r['metadata']['sentiment']:.2f})")
+            else:
+                st.write("No trending projects meet the criteria.")
+
         except Exception as e:
             st.error(f"An error occurred: {e}")
             logger.error(f"Streamlit error: {e}")
