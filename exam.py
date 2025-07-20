@@ -480,6 +480,7 @@ import re
 import logging
 import os
 import json
+import torch
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -510,7 +511,15 @@ except Exception as e:
     logger.error(f"Error initializing Pinecone: {e}")
     raise
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+# Инициализация SentenceTransformer с явным указанием устройства
+device = torch.device("cpu")  # Явно задаем CPU как устройство
+try:
+    model = SentenceTransformer("all-MiniLM-L6-v2", device=device)
+    logger.info(f"SentenceTransformer initialized on {device}")
+except Exception as e:
+    logger.error(f"Failed to initialize SentenceTransformer: {e}")
+    raise
+
 # Проверка доступных моделей spaCy
 logger.info(f"Available spaCy models: {spacy.util.get_installed_models()}")
 try:
@@ -520,9 +529,14 @@ except Exception as e:
     raise
 
 # Инициализация DistilBERT для анализа тональности
-tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
-sentiment_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
-sentiment_analyzer = pipeline("sentiment-analysis", model=sentiment_model, tokenizer=tokenizer)
+try:
+    tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
+    sentiment_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
+    sentiment_model.to(device)  # Явно перемещаем модель на CPU
+    sentiment_analyzer = pipeline("sentiment-analysis", model=sentiment_model, tokenizer=tokenizer, device=device)
+except Exception as e:
+    logger.error(f"Failed to initialize DistilBERT: {e}")
+    raise
 
 # Предобработка текста
 def clean_text(text):
