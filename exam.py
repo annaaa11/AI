@@ -479,6 +479,7 @@ import streamlit as st
 import re
 import logging
 import os
+import json
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -517,7 +518,7 @@ except Exception as e:
     logger.error(f"Failed to load en_core_web_sm: {e}")
     raise
 
-# Инициализация DistilBERT для анализа тональности без sentencepiece
+# Инициализация DistilBERT для анализа тональности
 tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 sentiment_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
 sentiment_analyzer = pipeline("sentiment-analysis", model=sentiment_model, tokenizer=tokenizer)
@@ -566,6 +567,9 @@ def fetch_tweets(since_date, target_count):
         if response.status_code == 200:
             data = response.json()
             tweets = data.get("tweets", [])
+            if tweets:
+                # Логирование структуры первого твита для отладки
+                logger.info(f"Tweet object structure: {json.dumps(tweets[0], indent=2)}")
             all_tweets.extend(tweets)
 
             if data.get("has_next_page", False) and data.get("next_cursor", "") != "":
@@ -585,17 +589,29 @@ def save_to_pinecone(tweets):
     tweet_texts = [clean_text(tweet["text"]) for tweet in tweets]
     tweet_embeddings = model.encode(tweet_texts)
     sentiments = analyze_sentiment(tweet_texts)
-    vectors = [
-        (str(tweet["id"]), embedding.tolist(), {
-            "text": tweet["text"],
-            "author": tweet["user"]["screen_name"],
-            "created_at": tweet["created_at"],
-            "likes": tweet["favorite_count"],
-            "retweets": tweet["retweet_count"],
-            "sentiment": sentiment
-        })
-        for tweet, embedding, sentiment in zip(tweets, tweet_embeddings, sentiments)
-    ]
+    vectors = []
+    for tweet, embedding, sentiment in zip(tweets, tweet_embeddings, sentiments):
+        # Попытка получить имя пользователя с обработкой ошибок
+        try:
+            author = tweet.get("user", {}).get("screen_name", "unknown")
+            if author == "unknown":
+                logger.warning(f"No 'user.screen_name' in tweet: {tweet}")
+        except Exception as e:
+            logger.error(f"Error accessing user data: {e}")
+            author = "unknown"
+
+        vectors.append((
+            str(tweet["id"]),
+            embedding.tolist(),
+            {
+                "text": tweet["text"],
+                "author": author,
+                "created_at": tweet.get("created_at", ""),
+                "likes": tweet.get("favorite_count", 0),
+                "retweets": tweet.get("retweet_count", 0),
+                "sentiment": sentiment
+            }
+        ))
     index.upsert(vectors=vectors)
 
 
