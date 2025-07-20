@@ -524,12 +524,10 @@ tokenizer = AutoTokenizer.from_pretrained("distilbert-base-uncased")
 sentiment_model = AutoModelForSequenceClassification.from_pretrained("distilbert-base-uncased-finetuned-sst-2-english")
 sentiment_analyzer = pipeline("sentiment-analysis", model=sentiment_model, tokenizer=tokenizer)
 
-
 # Предобработка текста
 def clean_text(text):
     text = re.sub(r"http\S+|@\w+", "", text)  # Сохраняем хэштеги для извлечения
     return text.strip()
-
 
 # Сбор твитов с расширенным списком ключевых слов
 def fetch_tweets(since_date, target_count):
@@ -583,6 +581,17 @@ def fetch_tweets(since_date, target_count):
     logger.info(f"Found {len(all_tweets)} tweets matching crypto keywords")
     return all_tweets[:target_count]
 
+# Удаление старых записей из Pinecone
+def clear_pinecone_index(index):
+    try:
+        stats = index.describe_index_stats()
+        if stats["total_vector_count"] > 0:
+            logger.info("Deleting all vectors from Pinecone index")
+            index.delete(delete_all=True)
+            logger.info("All vectors deleted successfully")
+    except Exception as e:
+        logger.error(f"Error clearing Pinecone index: {e}")
+        raise
 
 # Сохранение эмбеддингов в Pinecone
 def save_to_pinecone(tweets):
@@ -614,7 +623,6 @@ def save_to_pinecone(tweets):
     index.upsert(vectors=vectors)
     logger.info(f"Upserted {len(vectors)} vectors to Pinecone")
 
-
 # Семантический поиск
 def semantic_search(query, top_n=100):
     query_embedding = model.encode(query, convert_to_tensor=True)
@@ -622,11 +630,9 @@ def semantic_search(query, top_n=100):
     logger.info(f"Semantic search returned {len(results['matches'])} matches for query: {query}")
     return [(r["metadata"], r["score"]) for r in results["matches"]]
 
-
 # Извлечение проектов
 def extract_project_names(tweet_texts):
     projects = []
-    # Список известных криптопроектов для прямого поиска
     known_projects = [
         "Bitcoin", "BTC", "Ethereum", "ETH", "Solana", "SOL", "Cardano", "ADA",
         "Polkadot", "DOT", "Dogecoin", "MoonCoin", "DeFi", "NFT", "Web3"
@@ -639,7 +645,6 @@ def extract_project_names(tweet_texts):
                 project = ent.text.replace("#", "")
                 if project not in projects:
                     projects.append(project)
-        # Прямой поиск известных проектов
         for project in known_projects:
             if re.search(r'\b' + re.escape(project) + r'\b', text, re.IGNORECASE):
                 if project not in projects:
@@ -648,12 +653,10 @@ def extract_project_names(tweet_texts):
     logger.info(f"Extracted project names: {projects}")
     return list(set(projects))
 
-
 # Анализ тональности
 def analyze_sentiment(tweet_texts):
     results = sentiment_analyzer(tweet_texts)
     return [r["score"] if r["label"] == "POSITIVE" else -r["score"] for r in results]
-
 
 # Анализ трендов
 def analyze_trends(project_names, days=3):
@@ -672,11 +675,9 @@ def analyze_trends(project_names, days=3):
         logger.warning("No trends found; DataFrame is empty")
         return df
 
-    # Расслабляем фильтр: только avg_sentiment > 0.3
     filtered_df = df[df["avg_sentiment"] > 0.3]
     logger.info(f"Filtered trends DataFrame: {filtered_df.to_dict()}")
     return filtered_df
-
 
 # Визуализация с Matplotlib
 def visualize_trends(df):
@@ -702,7 +703,6 @@ def visualize_trends(df):
     plt.tight_layout()
     return plt.gcf()
 
-
 # Streamlit интерфейс
 def main():
     st.title("Crypto Trends Analyzer")
@@ -717,6 +717,16 @@ def main():
                 st.write(f"No tweets matching crypto keywords found since {since_date}.")
                 return
 
+            # Вывод твитов в Streamlit
+            st.write("### Collected Tweets:")
+            for tweet in tweets[:10]:  # Ограничим вывод первыми 10 твитами для удобства
+                st.write(f"- {tweet['text']} (Author: {tweet.get('user', {}).get('screen_name', 'unknown')}, Likes: {tweet.get('favorite_count', 0)})")
+            st.write(f"Total tweets collected: {len(tweets)}")
+
+            # Удаление старых записей из Pinecone
+            clear_pinecone_index(index)
+
+            # Сохранение новых данных в Pinecone
             save_to_pinecone(tweets)
 
             relevant_tweets = semantic_search(query, top_n=100)
@@ -753,7 +763,6 @@ def main():
         except Exception as e:
             st.error(f"An error occurred: {e}")
             logger.error(f"Streamlit error: {e}")
-
 
 if __name__ == "__main__":
     main()
