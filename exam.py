@@ -505,6 +505,7 @@ try:
         )
         logger.info("Index created with ServerlessSpec (aws us-east-1)")
     index = pc.Index(index_name)
+    logger.info(f"Pinecone index stats: {index.describe_index_stats()}")
 except Exception as e:
     logger.error(f"Error initializing Pinecone: {e}")
     raise
@@ -526,7 +527,7 @@ sentiment_analyzer = pipeline("sentiment-analysis", model=sentiment_model, token
 
 # Предобработка текста
 def clean_text(text):
-    text = re.sub(r"http\S+|@\w+|#\w+", "", text)
+    text = re.sub(r"http\S+|@\w+", "", text)  # Сохраняем хэштеги для извлечения
     return text.strip()
 
 
@@ -545,7 +546,7 @@ def fetch_tweets(since_date, target_count):
         "HODL OR moon OR bull OR bear OR rugpull OR FOMO OR FUD OR whale OR pump OR dump OR "
         "#crypto OR #DeFi OR #NFT OR #Web3 OR #metaverse OR #GameFi OR #DAO OR #BTC OR #ETH OR #SOL OR #ADA OR "
         "AI blockchain OR zk-rollup OR cross-chain OR interoperability OR tokenization OR RWA OR #AIcrypto OR #zkrollup OR #RWA "
-        "-filter:retweets lang:en min_faves:50"
+        "-filter:retweets lang:en"
     )
     params = {
         "query": query,
@@ -611,23 +612,40 @@ def save_to_pinecone(tweets):
             }
         ))
     index.upsert(vectors=vectors)
+    logger.info(f"Upserted {len(vectors)} vectors to Pinecone")
 
 
 # Семантический поиск
 def semantic_search(query, top_n=100):
     query_embedding = model.encode(query, convert_to_tensor=True)
     results = index.query(vector=query_embedding.tolist(), top_k=top_n, include_metadata=True)
+    logger.info(f"Semantic search returned {len(results['matches'])} matches for query: {query}")
     return [(r["metadata"], r["score"]) for r in results["matches"]]
 
 
 # Извлечение проектов
 def extract_project_names(tweet_texts):
     projects = []
+    # Список известных криптопроектов для прямого поиска
+    known_projects = [
+        "Bitcoin", "BTC", "Ethereum", "ETH", "Solana", "SOL", "Cardano", "ADA",
+        "Polkadot", "DOT", "Dogecoin", "MoonCoin", "DeFi", "NFT", "Web3"
+    ]
+
     for text in tweet_texts:
         doc = nlp(text)
         for ent in doc.ents:
             if ent.label_ == "ORG" or ent.text.startswith("#"):
-                projects.append(ent.text.replace("#", ""))
+                project = ent.text.replace("#", "")
+                if project not in projects:
+                    projects.append(project)
+        # Прямой поиск известных проектов
+        for project in known_projects:
+            if re.search(r'\b' + re.escape(project) + r'\b', text, re.IGNORECASE):
+                if project not in projects:
+                    projects.append(project)
+
+    logger.info(f"Extracted project names: {projects}")
     return list(set(projects))
 
 
@@ -654,9 +672,8 @@ def analyze_trends(project_names, days=3):
         logger.warning("No trends found; DataFrame is empty")
         return df
 
-    # Расслабление критерия роста с 100 до 50
-    df["growth"] = df["mentions"] / df["mentions"].shift(1).replace(0, 1) * 100  # Избежание деления на ноль
-    filtered_df = df[(df["growth"] > 50) & (df["avg_sentiment"] > 0.5)]
+    # Расслабляем фильтр: только avg_sentiment > 0.3
+    filtered_df = df[df["avg_sentiment"] > 0.3]
     logger.info(f"Filtered trends DataFrame: {filtered_df.to_dict()}")
     return filtered_df
 
@@ -704,6 +721,7 @@ def main():
 
             relevant_tweets = semantic_search(query, top_n=100)
             tweet_texts = [tweet["text"] for tweet, _ in relevant_tweets]
+            logger.info(f"Sample tweet texts: {tweet_texts[:5]}")
 
             project_names = extract_project_names(tweet_texts)
             if not project_names:
