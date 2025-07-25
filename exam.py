@@ -846,6 +846,7 @@ from uuid import uuid4
 from datetime import datetime
 from urllib.parse import urlparse
 import requests
+import nest_asyncio
 
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.documents import Document
@@ -854,14 +855,17 @@ from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone, ServerlessSpec
 from langgraph.prebuilt import create_react_agent
 
+# Apply nest_asyncio to allow nested event loops
+nest_asyncio.apply()
+
 dotenv.load_dotenv()
 
-# API ключи
+# API keys
 api_key = os.getenv("GEMINI_API_KEY")
 pinecone_key = os.getenv("PINECONE_API_KEY")
-twitter_api_key = os.getenv("TWITTER_API_KEY")
+twitter_api_key = os.getenv("TWITTER_API_KEY") or "b45c33e1de7d49c2a761857d7ac9ec01"
 
-# Инициализация embeddings и Pinecone
+# Initialize embeddings and Pinecone
 embeddings = GoogleGenerativeAIEmbeddings(
     model="models/text-embedding-004",
     google_api_key=api_key
@@ -881,7 +885,7 @@ if not pc.has_index(index_name):
 index = pc.Index(index_name)
 vector_store = PineconeVectorStore(index=index, embedding=embeddings)
 
-# JSON для хранения ID
+# JSON for storing IDs
 json_path = "data_ai.json"
 if os.path.exists(json_path):
     with open(json_path, "r", encoding="utf-8") as f:
@@ -890,7 +894,7 @@ else:
     id_data = {}
 
 
-# Функция поиска твитов (ваша оригинальная функция)
+# Function to search tweets
 def search_tweets_by_user_since(twitter_url: str, start_date: datetime, limit=20):
     parsed_url = urlparse(twitter_url)
     path_parts = parsed_url.path.strip("/").split("/")
@@ -923,33 +927,36 @@ def search_tweets_by_user_since(twitter_url: str, start_date: datetime, limit=20
         return []
 
 
-# LLM и агент
+# LLM and agent
 llm = ChatGoogleGenerativeAI(
     model='gemini-2.0-flash',
     google_api_key=api_key
 )
 
 
-
 def doc_ser(user_text: str):
     """
-    Функция поиска документов по запросу пользователя через векторную базу.
+    Search for documents in the vector database based on user query.
 
-    :param user_text: Текст запроса от пользователя
-    :return: Список документов (Document), наиболее похожих на запрос
+    Args:
+        user_text (str): The user's query text to search for similar documents.
+
+    Returns:
+        List[Document]: A list of the top 3 most similar documents from the vector database.
     """
     docs = vector_store.similarity_search(user_text, k=3)
     return docs
+
 
 agent = create_react_agent(
     model=llm,
     tools=[doc_ser]
 )
 
-# Streamlit интерфейс
+# Streamlit interface
 st.title("Администрация Векторной Базы Данных")
 
-# Добавление твитов
+# Add tweets
 st.subheader("Добавить твиты в базу")
 
 twitter_url = st.text_input("Введите URL Twitter аккаунта:")
@@ -990,7 +997,7 @@ if st.button("Загрузить твиты"):
                 key_name = f"twitter_{username}_{tweet.get('id_str', new_id)}"
                 new_id_data[key_name] = new_id
 
-            # Обновление JSON
+            # Update JSON
             if os.path.exists(json_path):
                 with open(json_path, "r", encoding="utf-8") as jf:
                     existing_data = json.load(jf)
@@ -1002,7 +1009,7 @@ if st.button("Загрузить твиты"):
             with open(json_path, "w", encoding="utf-8") as jf:
                 json.dump(existing_data, jf, ensure_ascii=False)
 
-            # Добавление в векторную базу
+            # Add to vector store
             vector_store.add_documents(docs, ids=doc_ids)
 
             st.success(f"Добавлено {len(docs)} твитов от @{username} в базу.")
@@ -1011,8 +1018,8 @@ if st.button("Загрузить твиты"):
     else:
         st.error("Пожалуйста, введите URL Twitter аккаунта.")
 
-# Чат с поиском
-st.subheader("Чат с поиском по векторной базе")
+# Chat with search
+st.subheader("Чат с поиskom по векторной базе")
 
 if 'data' not in st.session_state:
     st.session_state["data"] = {'messages': [
