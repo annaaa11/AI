@@ -1979,7 +1979,17 @@ except Exception as e:
     st.error(f"Failed to initialize ChatGoogleGenerativeAI: {str(e)}")
     st.stop()
 
+
 def doc_ser(user_text: str):
+    """
+    Search for documents in the vector database based on user query.
+
+    Args:
+        user_text (str): The user's query text to search for similar documents.
+
+    Returns:
+        List[Document]: A list of the top 3 most similar documents from the vector database.
+    """
     try:
         docs = vector_store.similarity_search(user_text, k=3)
         return docs
