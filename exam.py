@@ -859,7 +859,7 @@ dotenv.load_dotenv()
 # API ключи
 api_key = os.getenv("GEMINI_API_KEY")
 pinecone_key = os.getenv("PINECONE_API_KEY")
-twitter_api_key = os.getenv("TWITTER_API_KEY") or "b45c33e1de7d49c2a761857d7ac9ec01"
+twitter_api_key = os.getenv("TWITTER_API_KEY")
 
 # Инициализация embeddings и Pinecone
 embeddings = GoogleGenerativeAIEmbeddings(
