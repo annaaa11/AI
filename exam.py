@@ -1078,7 +1078,7 @@ from langgraph.prebuilt import create_react_agent
 nest_asyncio.apply()
 
 # Load environment variables
-dotenv.load_dotenv()  # Ensure .env is in /mount/src/ai/ or specify path: dotenv.load_dotenv('/mount/src/ai/.env')
+dotenv.load_dotenv()  # Adjust path if needed: dotenv.load_dotenv('/mount/src/ai/.env')
 
 # API keys
 api_key = os.getenv("GEMINI_API_KEY")
@@ -1087,17 +1087,18 @@ twitter_api_key = os.getenv("TWITTER_API_KEY") or "b45c33e1de7d49c2a761857d7ac9e
 
 # Validate API keys
 if not api_key:
-    st.error("GEMINI_API_KEY is not set in the environment variables.")
+    st.error("GEMINI_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
     st.stop()
 if not pinecone_key:
-    st.error(
-        "PINECONE_API_KEY is not set in the environment variables. Please set it in the .env file or Streamlit Secrets.")
+    st.error("PINECONE_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
     st.stop()
 if not twitter_api_key:
     st.warning("TWITTER_API_KEY is not set, using default key.")
 
-# Debug print to verify API key
+# Debug print to verify API keys
+print(f"GEMINI_API_KEY: {api_key}")
 print(f"PINECONE_API_KEY: {pinecone_key}")
+print(f"TWITTER_API_KEY: {twitter_api_key}")
 
 # Initialize embeddings and Pinecone
 try:
@@ -1135,8 +1136,12 @@ vector_store = PineconeVectorStore(index=index, embedding=embeddings)
 # JSON for storing IDs
 json_path = "data_ai.json"
 if os.path.exists(json_path):
-    with open(json_path, "r", encoding="utf-8") as f:
-        id_data = json.load(f)
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            id_data = json.load(f)
+    except Exception as e:
+        st.error(f"Failed to read JSON file {json_path}: {str(e)}")
+        id_data = {}
 else:
     id_data = {}
 
