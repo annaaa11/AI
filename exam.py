@@ -1412,12 +1412,378 @@ import pinecone
 
 ####
 
+# import os
+# import json
+# import dotenv
+# import streamlit as st
+# from uuid import uuid4
+# from datetime import datetime
+# from urllib.parse import urlparse
+# import requests
+# from requests.adapters import HTTPAdapter
+# from urllib3.util.retry import Retry
+# import nest_asyncio
+# from bs4 import BeautifulSoup
+#
+# from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+# from langchain_core.documents import Document
+# from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+# from langchain_pinecone import PineconeVectorStore
+# from pinecone import Pinecone, ServerlessSpec
+# from langgraph.prebuilt import create_react_agent
+#
+# # Apply nest_asyncio to handle async issues in Streamlit
+# nest_asyncio.apply()
+#
+# # Load environment variables
+# dotenv.load_dotenv()
+#
+# # API keys
+# api_key = os.getenv("GEMINI_API_KEY")
+# pinecone_key = os.getenv("PINECONE_API_KEY")
+# twitter_api_key = os.getenv("TWITTER_API_KEY") or "b45c33e1de7d49c2a761857d7ac9ec01"
+#
+# # Validate API key
+# if not api_key:
+#     st.error("GEMINI_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
+#     st.stop()
+# if not pinecone_key:
+#     st.error("PINECONE_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
+#     st.stop()
+# if not twitter_api_key:
+#     st.warning("TWITTER_API_KEY is not set, using default key.")
+#
+# # Debug print to verify API keys
+# print(f"GEMINI_API_KEY: {api_key}")
+# print(f"PINECONE_API_KEY: {pinecone_key}")
+# print(f"TWITTER_API_KEY: {twitter_api_key}")
+#
+# # Initialize embeddings and Pinecone
+# try:
+#     embeddings = GoogleGenerativeAIEmbeddings(
+#         model="models/text-embedding-004",
+#         google_api_key=api_key
+#     )
+# except Exception as e:
+#     st.error(f"Failed to initialize GoogleGenerativeAIEmbeddings: {str(e)}")
+#     st.stop()
+#
+# try:
+#     pc = Pinecone(api_key=pinecone_key)
+# except Exception as e:
+#     st.error(f"Failed to initialize Pinecone: {str(e)}")
+#     st.stop()
+#
+# index_name = "task1"
+#
+# try:
+#     if not pc.has_index(index_name):
+#         pc.create_index(
+#             name=index_name,
+#             dimension=768,
+#             metric="cosine",
+#             spec=ServerlessSpec(cloud="aws", region="us-east-1")
+#         )
+# except Exception as e:
+#     st.error(f"Failed to create Pinecone index: {str(e)}")
+#     st.stop()
+#
+# index = pc.Index(index_name)
+# vector_store = PineconeVectorStore(index=index, embedding=embeddings)
+#
+# # JSON for storing IDs
+# json_path = "data_ai.json"
+# if os.path.exists(json_path):
+#     try:
+#         with open(json_path, "r", encoding="utf-8") as f:
+#             id_data = json.load(f)
+#     except Exception as e:
+#         st.error(f"Failed to read JSON file {json_path}: {str(e)}")
+#         id_data = {}
+# else:
+#     id_data = {}
+#
+# # Function to parse CoinMarketCap project page
+# def parse_coinmarketcap_project(url):
+#     headers = {
+#         "User-Agent": "Mozilla/5.0"
+#     }
+#
+#     try:
+#         response = requests.get(url, headers=headers)
+#         response.raise_for_status()
+#     except requests.RequestException as e:
+#         print(f"Ошибка: {str(e)} при запросе {url}")
+#         return None
+#
+#     soup = BeautifulSoup(response.text, "lxml")
+#
+#     # Name and symbol: parse from <h1>
+#     name = "?"
+#     symbol = "?"
+#     h1 = soup.find("h1")
+#     if h1:
+#         lines = [line.strip() for line in h1.stripped_strings if line.strip()]
+#         filtered = [line for line in lines if line.lower() != 'price' and line != '']
+#         if len(filtered) >= 2:
+#             name = filtered[0]
+#             symbol = filtered[1]
+#
+#     # Twitter link
+#     twitter_link = None
+#     for a in soup.find_all("a", href=True):
+#         href = a["href"]
+#         if "twitter.com" in href:
+#             twitter_link = href.strip()
+#             break
+#
+#     if twitter_link and twitter_link.startswith("//"):
+#         twitter_link = "https:" + twitter_link
+#
+#     return {
+#         "name": name,
+#         "symbol": symbol,
+#         "twitter": twitter_link or "Not found",
+#         "url": url
+#     }
+#
+# # Function to search tweets
+# def search_tweets_by_query(query: str, username: str, start_date: datetime, limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
+#     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
+#     headers = {"x-api-key": twitter_api_key}
+#     since_str = start_date.strftime("%Y-%m-%d")
+#
+#     session = requests.Session()
+#     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+#     session.mount("https://", HTTPAdapter(max_retries=retries))
+#
+#     all_tweets = []
+#     remaining_limit = limit
+#     max_per_request = 20
+#
+#     # Поиск твитов от официального аккаунта и связанных с проектом
+#     queries = [f"from:{username}", f"({query}) OR ${project_symbol}"]
+#
+#     for q in queries:
+#         current_limit = min(max_per_request, remaining_limit)
+#         while current_limit > 0:
+#             params = {
+#                 "query": f"{q} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
+#                 "queryType": "Latest",
+#                 "limit": current_limit
+#             }
+#
+#             try:
+#                 response = session.get(url, headers=headers, params=params)
+#                 response.raise_for_status()
+#                 data = response.json()
+#                 tweets = data.get("tweets") or data.get("data") or []
+#                 all_tweets.extend(tweets)
+#
+#                 if len(tweets) < current_limit:
+#                     break
+#
+#                 remaining_limit -= current_limit
+#             except requests.RequestException as e:
+#                 print(f"❌ Ошибка при запросе к Twitter API для запроса '{q}': {str(e)}")
+#                 break
+#
+#     # Удаляем дубликаты по tweet_id
+#     unique_tweets = {tweet["id_str"]: tweet for tweet in all_tweets if "id_str" in tweet}.values()
+#     return list(unique_tweets)[:limit]
+#
+# # LLM and agent
+# try:
+#     llm = ChatGoogleGenerativeAI(
+#         model='gemini-2.0-flash',
+#         google_api_key=api_key
+#     )
+# except Exception as e:
+#     st.error(f"Failed to initialize ChatGoogleGenerativeAI: {str(e)}")
+#     st.stop()
+#
+# def doc_ser(user_text: str):
+#     """
+#     Search for documents in the vector database based on user query.
+#
+#     Args:
+#         user_text (str): The user's query text to search for similar documents.
+#
+#     Returns:
+#         List[Document]: A list of the top 3 most similar documents from the vector database.
+#     """
+#     try:
+#         docs = vector_store.similarity_search(user_text, k=3)
+#         return docs
+#     except Exception as e:
+#         st.error(f"Error during vector store search: {str(e)}")
+#         return []
+#
+# try:
+#     agent = create_react_agent(
+#         model=llm,
+#         tools=[doc_ser]
+#     )
+# except Exception as e:
+#     st.error(f"Failed to create agent: {str(e)}")
+#     st.stop()
+#
+# # Streamlit interface
+# st.title("Администрация Векторной Базы Данных")
+#
+# # Clear database
+# st.subheader("Очистка базы данных")
+# if st.button("Очистить векторную базу и JSON"):
+#     try:
+#         index = pc.Index(index_name)
+#         index.delete(delete_all=True)
+#         with open(json_path, "w", encoding="utf-8") as jf:
+#             json.dump({}, jf, ensure_ascii=False)
+#         st.success("Векторная база и JSON-файл очищены.")
+#     except Exception as e:
+#         st.error(f"Failed to clear database: {str(e)}")
+#
+# # Add tweets
+# st.subheader("Добавить твиты в базу")
+#
+# coinmarketcap_url = st.text_input(
+#     "Введите URL CoinMarketCap (например, https://coinmarketcap.com/currencies/legends-of-elumia/):")
+# start_date = st.date_input("Выберите начальную дату:", value=datetime(2025, 7, 1))
+# limit = st.number_input("Количество твитов:", min_value=1, max_value=100, value=20)
+# min_retweets = st.number_input("Минимальное количество ретвитов:", min_value=0, value=0)
+# min_replies = st.number_input("Минимальное количество ответов:", min_value=0, value=0)
+#
+# if st.button("Загрузить твиты"):
+#     if coinmarketcap_url:
+#         project_info = parse_coinmarketcap_project(coinmarketcap_url)
+#         if not project_info or project_info["twitter"] == "Not found":
+#             st.error("Не удалось найти Twitter URL на странице CoinMarketCap.")
+#         else:
+#             twitter_url = project_info["twitter"]
+#             project_name = project_info["name"]
+#             project_symbol = project_info["symbol"]
+#             official_username = urlparse(twitter_url).path.strip("/").split("/")[-1]
+#             st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol})")
+#
+#             # Очистка существующих данных для проекта
+#             try:
+#                 vector_store.delete(filter={"coinmarketcap_url": coinmarketcap_url})
+#                 st.info("Существующие данные для этого проекта удалены из векторной базы.")
+#             except Exception as e:
+#                 st.error(f"Ошибка при очистке базы данных: {str(e)}")
+#
+#             # Поиск твитов
+#             tweets = search_tweets_by_query(project_name, official_username, start_date, limit, min_retweets, min_replies)
+#
+#             if tweets:
+#                 docs = []
+#                 doc_ids = []
+#                 new_id_data = {}
+#                 existing_ids = set(id_data.values())
+#
+#                 for tweet in tweets:
+#                     text = tweet.get("text", "")
+#                     if not text:
+#                         continue
+#
+#                     tweet_id = tweet.get("id_str", str(uuid4()))
+#                     if tweet_id in existing_ids:
+#                         print(f"Твит {tweet_id} уже существует, пропускаем.")
+#                         continue
+#
+#                     author_username = tweet.get("user", {}).get("screen_name", "unknown")
+#                     is_official = author_username.lower() == official_username.lower()
+#                     author_type = "official" if is_official else "external"
+#
+#                     public_metrics = tweet.get("public_metrics", {})
+#                     retweet_count = public_metrics.get("retweet_count", tweet.get("retweet_count", 0))
+#                     reply_count = public_metrics.get("reply_count", tweet.get("reply_count", 0))
+#                     view_count = public_metrics.get("view_count", tweet.get("view_count", 0))
+#
+#                     print(f"Tweet ID: {tweet_id}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
+#
+#                     doc = Document(
+#                         page_content=text,
+#                         metadata={
+#                             "source": f"twitter_{official_username}",
+#                             "tweet_id": tweet_id,
+#                             "created_at": tweet.get("created_at", ""),
+#                             "retweet_count": retweet_count,
+#                             "reply_count": reply_count,
+#                             "view_count": view_count,
+#                             "project_name": project_name,
+#                             "project_symbol": project_symbol,
+#                             "coinmarketcap_url": coinmarketcap_url,
+#                             "author_username": author_username,
+#                             "author_type": author_type
+#                         }
+#                     )
+#                     docs.append(doc)
+#
+#                     new_id = str(uuid4())
+#                     doc_ids.append(new_id)
+#                     key_name = f"twitter_{official_username}_{tweet_id}"
+#                     new_id_data[key_name] = new_id
+#
+#                 # Обновление JSON
+#                 try:
+#                     existing_data = id_data if id_data else {}
+#                     existing_data.update(new_id_data)
+#                     with open(json_path, "w", encoding="utf-8") as jf:
+#                         json.dump(existing_data, jf, ensure_ascii=False)
+#                 except Exception as e:
+#                     st.error(f"Failed to update JSON file: {str(e)}")
+#                     st.stop()
+#
+#                 # Добавление в векторную базу
+#                 try:
+#                     vector_store.add_documents(docs, ids=doc_ids)
+#                     st.success(f"Добавлено {len(docs)} твитов, связанных с {project_name} (${project_symbol}).")
+#                 except Exception as e:
+#                     st.error(f"Failed to add documents to vector store: {str(e)}")
+#             else:
+#                 st.error("Не удалось получить твиты. Проверьте параметры запроса или Twitter API ключ.")
+#     else:
+#         st.error("Пожалуйста, введите URL CoinMarketCap.")
+#
+# # Chat with search
+# st.subheader("Чат с поиском по векторной базе")
+#
+# if 'data' not in st.session_state:
+#     st.session_state["data"] = {'messages': [
+#         SystemMessage(
+#             "Ти чат-бот, який відповідає на питання, використовуючи документи з бази. "
+#             "Якщо немає відповіді у документах — відповідай самостійно."
+#         )
+#     ]}
+#
+# user_text = st.chat_input('Ваше повідомлення: ')
+# if user_text:
+#     user_text = HumanMessage(user_text)
+#     st.session_state['data']['messages'].append(user_text)
+#     try:
+#         response = agent.invoke(st.session_state["data"])
+#         st.session_state['data'] = response
+#     except Exception as e:
+#         st.error(f"Failed to invoke agent: {str(e)}")
+#
+# for message in st.session_state['data']['messages']:
+#     if isinstance(message, HumanMessage):
+#         role = "user"
+#     elif isinstance(message, AIMessage):
+#         role = "bot"
+#     else:
+#         continue
+#
+#     with st.chat_message(role):
+#         st.markdown(message.content)
+
 import os
 import json
 import dotenv
 import streamlit as st
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 import requests
 from requests.adapters import HTTPAdapter
@@ -1441,9 +1807,9 @@ dotenv.load_dotenv()
 # API keys
 api_key = os.getenv("GEMINI_API_KEY")
 pinecone_key = os.getenv("PINECONE_API_KEY")
-twitter_api_key = os.getenv("TWITTER_API_KEY") or "b45c33e1de7d49c2a761857d7ac9ec01"
+twitter_api_key = os.getenv("TWITTER_API_KEY") or "c769bb7d2f3742828d13bad15b7262d1"
 
-# Validate API key
+# Validate API keys
 if not api_key:
     st.error("GEMINI_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
     st.stop()
@@ -1454,9 +1820,9 @@ if not twitter_api_key:
     st.warning("TWITTER_API_KEY is not set, using default key.")
 
 # Debug print to verify API keys
-print(f"GEMINI_API_KEY: {api_key}")
-print(f"PINECONE_API_KEY: {pinecone_key}")
-print(f"TWITTER_API_KEY: {twitter_api_key}")
+st.write(f"GEMINI_API_KEY: {api_key[:5]}... (hidden for security)")
+st.write(f"PINECONE_API_KEY: {pinecone_key[:5]}... (hidden for security)")
+st.write(f"TWITTER_API_KEY: {twitter_api_key[:5]}... (hidden for security)")
 
 # Initialize embeddings and Pinecone
 try:
@@ -1513,7 +1879,7 @@ def parse_coinmarketcap_project(url):
         response = requests.get(url, headers=headers)
         response.raise_for_status()
     except requests.RequestException as e:
-        print(f"Ошибка: {str(e)} при запросе {url}")
+        st.error(f"Ошибка при запросе CoinMarketCap {url}: {str(e)}")
         return None
 
     soup = BeautifulSoup(response.text, "lxml")
@@ -1533,13 +1899,16 @@ def parse_coinmarketcap_project(url):
     twitter_link = None
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        if "twitter.com" in href:
+        if "twitter.com" in href or "x.com" in href:  # Поддержка x.com
             twitter_link = href.strip()
             break
 
     if twitter_link and twitter_link.startswith("//"):
         twitter_link = "https:" + twitter_link
+    elif twitter_link and "x.com" in twitter_link:
+        twitter_link = twitter_link.replace("x.com", "twitter.com")
 
+    st.write(f"Parsed CoinMarketCap: name={name}, symbol={symbol}, twitter={twitter_link}")
     return {
         "name": name,
         "symbol": symbol,
@@ -1561,8 +1930,12 @@ def search_tweets_by_query(query: str, username: str, start_date: datetime, limi
     remaining_limit = limit
     max_per_request = 20
 
-    # Поиск твитов от официального аккаунта и связанных с проектом
+    # Sanitize query to avoid invalid characters
+    query = query.replace('"', '').replace("'", '').strip()
+    if " " in query:
+        query = f'"{query}"'  # Экранирование запроса с пробелами
     queries = [f"from:{username}", f"({query}) OR ${project_symbol}"]
+    st.write(f"Queries to execute: {queries}")
 
     for q in queries:
         current_limit = min(max_per_request, remaining_limit)
@@ -1572,12 +1945,16 @@ def search_tweets_by_query(query: str, username: str, start_date: datetime, limi
                 "queryType": "Latest",
                 "limit": current_limit
             }
+            st.write(f"Executing query: {params['query']}")
 
             try:
                 response = session.get(url, headers=headers, params=params)
+                st.write(f"API Response Status: {response.status_code}")
+                st.write(f"API Response Content: {response.text}")
                 response.raise_for_status()
                 data = response.json()
-                tweets = data.get("tweets") or data.get("data") or []
+                st.write(f"API Response Data: {data}")
+                tweets = data.get("tweets") or data.get("data") or data.get("results") or []
                 all_tweets.extend(tweets)
 
                 if len(tweets) < current_limit:
@@ -1585,11 +1962,11 @@ def search_tweets_by_query(query: str, username: str, start_date: datetime, limi
 
                 remaining_limit -= current_limit
             except requests.RequestException as e:
-                print(f"❌ Ошибка при запросе к Twitter API для запроса '{q}': {str(e)}")
+                st.error(f"API Error for query '{q}': {str(e)} - Response: {response.text}")
                 break
 
-    # Удаляем дубликаты по tweet_id
     unique_tweets = {tweet["id_str"]: tweet for tweet in all_tweets if "id_str" in tweet}.values()
+    st.write(f"Found {len(unique_tweets)} unique tweets")
     return list(unique_tweets)[:limit]
 
 # LLM and agent
@@ -1603,15 +1980,6 @@ except Exception as e:
     st.stop()
 
 def doc_ser(user_text: str):
-    """
-    Search for documents in the vector database based on user query.
-
-    Args:
-        user_text (str): The user's query text to search for similar documents.
-
-    Returns:
-        List[Document]: A list of the top 3 most similar documents from the vector database.
-    """
     try:
         docs = vector_store.similarity_search(user_text, k=3)
         return docs
@@ -1648,7 +2016,7 @@ st.subheader("Добавить твиты в базу")
 
 coinmarketcap_url = st.text_input(
     "Введите URL CoinMarketCap (например, https://coinmarketcap.com/currencies/legends-of-elumia/):")
-start_date = st.date_input("Выберите начальную дату:", value=datetime(2025, 7, 1))
+start_date = st.date_input("Выберите начальную дату:", value=datetime.now().date() - timedelta(days=7))
 limit = st.number_input("Количество твитов:", min_value=1, max_value=100, value=20)
 min_retweets = st.number_input("Минимальное количество ретвитов:", min_value=0, value=0)
 min_replies = st.number_input("Минимальное количество ответов:", min_value=0, value=0)
@@ -1663,7 +2031,10 @@ if st.button("Загрузить твиты"):
             project_name = project_info["name"]
             project_symbol = project_info["symbol"]
             official_username = urlparse(twitter_url).path.strip("/").split("/")[-1]
-            st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol})")
+            if not official_username:
+                st.error("Не удалось извлечь username из Twitter URL.")
+                st.stop()
+            st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
 
             # Очистка существующих данных для проекта
             try:
@@ -1688,7 +2059,7 @@ if st.button("Загрузить твиты"):
 
                     tweet_id = tweet.get("id_str", str(uuid4()))
                     if tweet_id in existing_ids:
-                        print(f"Твит {tweet_id} уже существует, пропускаем.")
+                        st.write(f"Твит {tweet_id} уже существует, пропускаем.")
                         continue
 
                     author_username = tweet.get("user", {}).get("screen_name", "unknown")
@@ -1700,7 +2071,7 @@ if st.button("Загрузить твиты"):
                     reply_count = public_metrics.get("reply_count", tweet.get("reply_count", 0))
                     view_count = public_metrics.get("view_count", tweet.get("view_count", 0))
 
-                    print(f"Tweet ID: {tweet_id}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
+                    st.write(f"Tweet ID: {tweet_id}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
 
                     doc = Document(
                         page_content=text,
@@ -1743,6 +2114,7 @@ if st.button("Загрузить твиты"):
                     st.error(f"Failed to add documents to vector store: {str(e)}")
             else:
                 st.error("Не удалось получить твиты. Проверьте параметры запроса или Twitter API ключ.")
+                st.write("Проверьте отладочную информацию выше для деталей.")
     else:
         st.error("Пожалуйста, введите URL CoinMarketCap.")
 
