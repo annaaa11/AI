@@ -1876,7 +1876,7 @@ def parse_coinmarketcap_project(url):
     }
 
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
     except requests.RequestException as e:
         st.error(f"Ошибка при запросе CoinMarketCap {url}: {str(e)}")
@@ -1899,7 +1899,7 @@ def parse_coinmarketcap_project(url):
     twitter_link = None
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        if "twitter.com" in href or "x.com" in href:  # Поддержка x.com
+        if "twitter.com" in href or "x.com" in href:
             twitter_link = href.strip()
             break
 
@@ -1928,7 +1928,8 @@ def search_tweets_by_query(query: str, username: str, start_date: datetime, limi
 
     all_tweets = []
     remaining_limit = limit
-    max_per_request = 20
+    max_iterations = 5  # Ограничение числа итераций для предотвращения зависания
+    iteration_count = 0
 
     # Sanitize query to avoid invalid characters
     query = query.replace('"', '').replace("'", '').strip()
@@ -1938,8 +1939,8 @@ def search_tweets_by_query(query: str, username: str, start_date: datetime, limi
     st.write(f"Queries to execute: {queries}")
 
     for q in queries:
-        current_limit = min(max_per_request, remaining_limit)
-        while current_limit > 0:
+        while remaining_limit > 0 and iteration_count < max_iterations:
+            current_limit = min(20, remaining_limit)
             params = {
                 "query": f"{q} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
                 "queryType": "Latest",
@@ -1948,38 +1949,55 @@ def search_tweets_by_query(query: str, username: str, start_date: datetime, limi
             st.write(f"Executing query: {params['query']}")
 
             try:
-                response = session.get(url, headers=headers, params=params)
+                response = session.get(url, headers=headers, params=params, timeout=10)
                 st.write(f"API Response Status: {response.status_code}")
-                st.write(f"API Response Content: {response.text}")
+                st.write(f"API Response Content (first 500 chars): {response.text[:500]}...")
                 response.raise_for_status()
                 data = response.json()
-                st.write(f"API Response Data: {data}")
-                tweets = data.get("tweets") or data.get("data") or data.get("results") or []
-                all_tweets.extend(tweets)
+                st.write(f"API Response Data structure: {list(data.keys())}")
+
+                # Извлечение твитов из ответа
+                tweets = []
+                if "tweets" in data:
+                    tweets = [item for item in data["tweets"] if item.get("type") == "tweet"]
+                elif "data" in data:
+                    tweets = [item for item in data["data"] if item.get("type") == "tweet"]
+                elif "results" in data:
+                    tweets = [item for item in data["results"] if item.get("type") == "tweet"]
+                st.write(f"Extracted {len(tweets)} tweets from response")
+
+                # Форматирование твитов для совместимости
+                formatted_tweets = []
+                for tweet in tweets:
+                    formatted_tweet = {
+                        "id_str": str(tweet.get("id", tweet.get("id_str", str(uuid4())))),
+                        "text": tweet.get("text", ""),
+                        "created_at": tweet.get("created_at", ""),
+                        "user": {"screen_name": tweet.get("user", {}).get("screen_name", "unknown")},
+                        "public_metrics": {
+                            "retweet_count": tweet.get("retweetCount", 0),
+                            "reply_count": tweet.get("replyCount", 0),
+                            "view_count": tweet.get("viewCount", 0)
+                        }
+                    }
+                    formatted_tweets.append(formatted_tweet)
+
+                all_tweets.extend(formatted_tweets)
+                remaining_limit -= current_limit
 
                 if len(tweets) < current_limit:
                     break
 
-                remaining_limit -= current_limit
+                iteration_count += 1
             except requests.RequestException as e:
-                st.error(f"API Error for query '{q}': {str(e)} - Response: {response.text}")
+                st.error(f"API Error for query '{q}': {str(e)} - Response: {response.text[:500]}...")
                 break
 
-    unique_tweets = {tweet["id_str"]: tweet for tweet in all_tweets if "id_str" in tweet}.values()
+    unique_tweets = {tweet["id_str"]: tweet for tweet in all_tweets}.values()
     st.write(f"Found {len(unique_tweets)} unique tweets")
     return list(unique_tweets)[:limit]
 
-# LLM and agent
-try:
-    llm = ChatGoogleGenerativeAI(
-        model='gemini-2.0-flash',
-        google_api_key=api_key
-    )
-except Exception as e:
-    st.error(f"Failed to initialize ChatGoogleGenerativeAI: {str(e)}")
-    st.stop()
-
-
+# Function to search documents
 def doc_ser(user_text: str):
     """
     Search for documents in the vector database based on user query.
@@ -1996,6 +2014,16 @@ def doc_ser(user_text: str):
     except Exception as e:
         st.error(f"Error during vector store search: {str(e)}")
         return []
+
+# LLM and agent
+try:
+    llm = ChatGoogleGenerativeAI(
+        model='gemini-2.0-flash',
+        google_api_key=api_key
+    )
+except Exception as e:
+    st.error(f"Failed to initialize ChatGoogleGenerativeAI: {str(e)}")
+    st.stop()
 
 try:
     agent = create_react_agent(
