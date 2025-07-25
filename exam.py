@@ -1917,7 +1917,7 @@ def parse_coinmarketcap_project(url):
     }
 
 # Function to search tweets
-def search_tweets_by_query(query: str, username: str, start_date: datetime, limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
+def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime, limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     headers = {"x-api-key": twitter_api_key}
     since_str = start_date.strftime("%Y-%m-%d")
@@ -1931,11 +1931,18 @@ def search_tweets_by_query(query: str, username: str, start_date: datetime, limi
     max_iterations = 5  # Ограничение числа итераций для предотвращения зависания
     iteration_count = 0
 
-    # Sanitize query to avoid invalid characters
+    # Sanitize queries to avoid invalid characters
     query = query.replace('"', '').replace("'", '').strip()
     if " " in query:
-        query = f'"{query}"'  # Экранирование запроса с пробелами
-    queries = [f"from:{username}", f"({query}) OR ${project_symbol}"]
+        query = f'"{query}"'
+    project_name_query = f'"{project_name}"'
+    project_symbol_query = f"${project_symbol}"
+
+    # Define queries
+    queries = [
+        f"from:{username}",  # Tweets from the official account
+        f"{project_name_query} OR {project_symbol_query}"  # Tweets containing project name or symbol
+    ]
     st.write(f"Queries to execute: {queries}")
 
     for q in queries:
@@ -2082,7 +2089,7 @@ if st.button("Загрузить твиты"):
                 st.error(f"Ошибка при очистке базы данных: {str(e)}")
 
             # Поиск твитов
-            tweets = search_tweets_by_query(project_name, official_username, start_date, limit, min_retweets, min_replies)
+            tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date, limit, min_retweets, min_replies)
 
             if tweets:
                 docs = []
