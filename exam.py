@@ -1056,7 +1056,6 @@ import pinecone
 
 #############
 
-
 import os
 import json
 import dotenv
@@ -1078,29 +1077,57 @@ from langgraph.prebuilt import create_react_agent
 # Apply nest_asyncio to handle async issues in Streamlit
 nest_asyncio.apply()
 
-dotenv.load_dotenv()
+# Load environment variables
+dotenv.load_dotenv()  # Ensure .env is in /mount/src/ai/ or specify path: dotenv.load_dotenv('/mount/src/ai/.env')
 
 # API keys
 api_key = os.getenv("GEMINI_API_KEY")
 pinecone_key = os.getenv("PINECONE_API_KEY")
 twitter_api_key = os.getenv("TWITTER_API_KEY") or "b45c33e1de7d49c2a761857d7ac9ec01"
 
-# Initialize embeddings and Pinecone
-embeddings = GoogleGenerativeAIEmbeddings(
-    model="models/text-embedding-004",
-    google_api_key=api_key
-)
+# Validate API keys
+if not api_key:
+    st.error("GEMINI_API_KEY is not set in the environment variables.")
+    st.stop()
+if not pinecone_key:
+    st.error(
+        "PINECONE_API_KEY is not set in the environment variables. Please set it in the .env file or Streamlit Secrets.")
+    st.stop()
+if not twitter_api_key:
+    st.warning("TWITTER_API_KEY is not set, using default key.")
 
-pc = Pinecone(api_key=pinecone_key)
+# Debug print to verify API key
+print(f"PINECONE_API_KEY: {pinecone_key}")
+
+# Initialize embeddings and Pinecone
+try:
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/text-embedding-004",
+        google_api_key=api_key
+    )
+except Exception as e:
+    st.error(f"Failed to initialize GoogleGenerativeAIEmbeddings: {str(e)}")
+    st.stop()
+
+try:
+    pc = Pinecone(api_key=pinecone_key)
+except Exception as e:
+    st.error(f"Failed to initialize Pinecone: {str(e)}")
+    st.stop()
+
 index_name = "task1"
 
-if not pc.has_index(index_name):
-    pc.create_index(
-        name=index_name,
-        dimension=768,
-        metric="cosine",
-        spec=ServerlessSpec(cloud="aws", region="us-east-1")
-    )
+try:
+    if not pc.has_index(index_name):
+        pc.create_index(
+            name=index_name,
+            dimension=768,
+            metric="cosine",
+            spec=ServerlessSpec(cloud="aws", region="us-east-1")
+        )
+except Exception as e:
+    st.error(f"Failed to create Pinecone index: {str(e)}")
+    st.stop()
 
 index = pc.Index(index_name)
 vector_store = PineconeVectorStore(index=index, embedding=embeddings)
@@ -1120,9 +1147,11 @@ def parse_coinmarketcap_project(url):
         "User-Agent": "Mozilla/5.0"
     }
 
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        print(f"Ошибка: {response.status_code} при запросе {url}")
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Ошибка: {str(e)} при запросе {url}")
         return None
 
     soup = BeautifulSoup(response.text, "lxml")
@@ -1176,9 +1205,9 @@ def search_tweets_by_query(query: str, start_date: datetime, limit: int = 20, mi
             "limit": current_limit
         }
 
-        response = requests.get(url, headers=headers, params=params)
-
-        if response.status_code == 200:
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            response.raise_for_status()
             data = response.json()
             tweets = data.get("tweets") or data.get("data") or []
             all_tweets.extend(tweets)
@@ -1188,18 +1217,22 @@ def search_tweets_by_query(query: str, start_date: datetime, limit: int = 20, mi
                 break
 
             remaining_limit -= current_limit
-        else:
-            print(f"❌ Ошибка {response.status_code}: {response.text}")
+        except requests.RequestException as e:
+            print(f"❌ Ошибка при запросе к Twitter API: {str(e)}")
             break
 
     return all_tweets
 
 
 # LLM and agent
-llm = ChatGoogleGenerativeAI(
-    model='gemini-2.0-flash',
-    google_api_key=api_key
-)
+try:
+    llm = ChatGoogleGenerativeAI(
+        model='gemini-2.0-flash',
+        google_api_key=api_key
+    )
+except Exception as e:
+    st.error(f"Failed to initialize ChatGoogleGenerativeAI: {str(e)}")
+    st.stop()
 
 
 def doc_ser(user_text: str):
@@ -1212,14 +1245,22 @@ def doc_ser(user_text: str):
     Returns:
         List[Document]: A list of the top 3 most similar documents from the vector database.
     """
-    docs = vector_store.similarity_search(user_text, k=3)
-    return docs
+    try:
+        docs = vector_store.similarity_search(user_text, k=3)
+        return docs
+    except Exception as e:
+        st.error(f"Error during vector store search: {str(e)}")
+        return []
 
 
-agent = create_react_agent(
-    model=llm,
-    tools=[doc_ser]
-)
+try:
+    agent = create_react_agent(
+        model=llm,
+        tools=[doc_ser]
+    )
+except Exception as e:
+    st.error(f"Failed to create agent: {str(e)}")
+    st.stop()
 
 # Streamlit interface
 st.title("Администрация Векторной Базы Данных")
@@ -1227,11 +1268,14 @@ st.title("Администрация Векторной Базы Данных")
 # Clear database
 st.subheader("Очистка базы данных")
 if st.button("Очистить векторную базу и JSON"):
-    index = pc.Index(index_name)
-    index.delete(delete_all=True)
-    with open(json_path, "w", encoding="utf-8") as jf:
-        json.dump({}, jf, ensure_ascii=False)
-    st.success("Векторная база и JSON-файл очищены.")
+    try:
+        index = pc.Index(index_name)
+        index.delete(delete_all=True)
+        with open(json_path, "w", encoding="utf-8") as jf:
+            json.dump({}, jf, ensure_ascii=False)
+        st.success("Векторная база и JSON-файл очищены.")
+    except Exception as e:
+        st.error(f"Failed to clear database: {str(e)}")
 
 # Add tweets
 st.subheader("Добавить твиты в базу")
@@ -1256,10 +1300,14 @@ if st.button("Загрузить твиты"):
             st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol})")
 
             # Clear database before loading new tweets
-            index = pc.Index(index_name)
-            index.delete(delete_all=True)
-            with open(json_path, "w", encoding="utf-8") as jf:
-                json.dump({}, jf, ensure_ascii=False)
+            try:
+                index = pc.Index(index_name)
+                index.delete(delete_all=True)
+                with open(json_path, "w", encoding="utf-8") as jf:
+                    json.dump({}, jf, ensure_ascii=False)
+            except Exception as e:
+                st.error(f"Failed to clear database: {str(e)}")
+                st.stop()
 
             # Form query for tweet search
             query = f"({project_name}) OR ${project_symbol}"
@@ -1306,23 +1354,29 @@ if st.button("Загрузить твиты"):
                     new_id_data[key_name] = new_id
 
                 # Update JSON
-                if os.path.exists(json_path):
-                    with open(json_path, "r", encoding="utf-8") as jf:
-                        existing_data = json.load(jf)
-                else:
-                    existing_data = {}
+                try:
+                    if os.path.exists(json_path):
+                        with open(json_path, "r", encoding="utf-8") as jf:
+                            existing_data = json.load(jf)
+                    else:
+                        existing_data = {}
 
-                existing_data.update(new_id_data)
+                    existing_data.update(new_id_data)
 
-                with open(json_path, "w", encoding="utf-8") as jf:
-                    json.dump(existing_data, jf, ensure_ascii=False)
+                    with open(json_path, "w", encoding="utf-8") as jf:
+                        json.dump(existing_data, jf, ensure_ascii=False)
+                except Exception as e:
+                    st.error(f"Failed to update JSON file: {str(e)}")
+                    st.stop()
 
                 # Add to vector store
-                vector_store.add_documents(docs, ids=doc_ids)
-
-                st.success(f"Добавлено {len(docs)} твитов, связанных с {project_name} (${project_symbol}).")
+                try:
+                    vector_store.add_documents(docs, ids=doc_ids)
+                    st.success(f"Добавлено {len(docs)} твитов, связанных с {project_name} (${project_symbol}).")
+                except Exception as e:
+                    st.error(f"Failed to add documents to vector store: {str(e)}")
             else:
-                st.error("Не удалось получить твиты. Проверьте параметры запроса.")
+                st.error("Не удалось получить твиты. Проверьте параметры запроса или Twitter API ключ.")
     else:
         st.error("Пожалуйста, введите URL CoinMarketCap.")
 
@@ -1341,8 +1395,11 @@ user_text = st.chat_input('Ваше повідомлення: ')
 if user_text:
     user_text = HumanMessage(user_text)
     st.session_state['data']['messages'].append(user_text)
-    response = agent.invoke(st.session_state["data"])
-    st.session_state['data'] = response
+    try:
+        response = agent.invoke(st.session_state["data"])
+        st.session_state['data'] = response
+    except Exception as e:
+        st.error(f"Failed to invoke agent: {str(e)}")
 
 for message in st.session_state['data']['messages']:
     if isinstance(message, HumanMessage):
