@@ -1305,14 +1305,7 @@ if st.button("Загрузить твиты"):
             st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol})")
 
             # Clear database before loading new tweets
-            try:
-                index = pc.Index(index_name)
-                index.delete(delete_all=True)
-                with open(json_path, "w", encoding="utf-8") as jf:
-                    json.dump({}, jf, ensure_ascii=False)
-            except Exception as e:
-                st.error(f"Failed to clear database: {str(e)}")
-                st.stop()
+
 
             # Form query for tweet search
             query = f"({project_name}) OR ${project_symbol}"
