@@ -2883,28 +2883,34 @@ if st.button("Удалить конкретный документ"):
 # Analytics section
 st.subheader("Аналитика твитов")
 
-# Список доступных проектов из векторной базы
 try:
-    # Получаем все документы без фильтров для получения уникальных coinmarketcap_url
-    all_docs = vector_store.similarity_search("", k=1000)  # Пустой запрос для получения всех документов
+    # Get all projects from vector database
+    all_docs = vector_store.similarity_search("", k=1000)
     unique_projects = set(
-        doc.metadata.get("coinmarketcap_url") for doc in all_docs if doc.metadata.get("coinmarketcap_url"))
+        doc.metadata.get("coinmarketcap_url") for doc in all_docs if doc.metadata.get("coinmarketcap_url")
+    )
     if not unique_projects:
         st.error("Нет данных в векторной базе для анализа. Загрузите твиты сначала.")
     else:
         selected_project = st.selectbox("Выберите проект для анализа:", options=["Все проекты"] + list(unique_projects))
 
-        # Фильтр по проекту
+        # Filter by project
         filter_dict = {}
         if selected_project != "Все проекты":
-            filter_dict = {"coinmarketcap_url": {"$eq": selected_project}}
+            normalized_url = normalize_url(selected_project)
+            filter_dict = {
+                "$or": [
+                    {"coinmarketcap_url": normalized_url},
+                    {"coinmarketcap_url": normalized_url + "/"}
+                ]
+            }
 
-        # Получаем все релевантные документы
+        # Get relevant documents
         docs = vector_store.similarity_search("", k=1000, filter=filter_dict)
         if not docs:
             st.error("Нет данных для выбранного проекта в векторной базе.")
         else:
-            # Преобразуем документы в DataFrame
+            # Convert to DataFrame
             data = []
             for doc in docs:
                 metadata = doc.metadata
@@ -2915,6 +2921,7 @@ try:
                     "retweet_count": metadata.get("retweet_count", 0),
                     "reply_count": metadata.get("reply_count", 0),
                     "author_username": metadata.get("author_username", "unknown"),
+                    "author_type": metadata.get("author_type", "external"),
                     "project_name": metadata.get("project_name", ""),
                     "project_symbol": metadata.get("project_symbol", "")
                 })
@@ -2923,20 +2930,26 @@ try:
             # Debug: Check created_at values
             st.write("Sample created_at values:", tweets_df["created_at"].head().tolist())
 
-            # Преобразуем created_at в datetime
+            # Convert created_at to datetime
             tweets_df["created_at"] = pd.to_datetime(tweets_df["created_at"], errors="coerce", utc=True)
-            tweets_df = tweets_df.dropna(subset=["created_at"])  # Remove rows with invalid dates
+            tweets_df = tweets_df.dropna(subset=["created_at"])
             if tweets_df.empty:
                 st.error("Нет данных с валидными датами для анализа. Проверьте формат created_at в векторной базе.")
             else:
                 tweets_df["date"] = tweets_df["created_at"].dt.date
 
-                # Fetch followers and following count (if official username is available)
+                # Split tweets by author_type
+                official_tweets_df = tweets_df[tweets_df["author_type"] == "official"]
+                other_tweets_df = tweets_df[tweets_df["author_type"] != "official"]
+
+                # Fetch followers if official_username is available
                 official_username = None
                 if selected_project != "Все проекты":
-                    first_doc = next((doc for doc in docs if doc.metadata.get("author_type") == "official"), None)
-                    if first_doc:
-                        official_username = first_doc.metadata.get("author_username")
+                    first_official_doc = next((doc for doc in docs if doc.metadata.get("author_type") == "official"),
+                                              None)
+                    if first_official_doc:
+                        official_username = first_official_doc.metadata.get("author_username")
+
                 if official_username:
                     try:
                         st.write(f"Attempting to fetch data for username: {official_username}")
@@ -2945,26 +2958,30 @@ try:
                         response = requests.get(url, headers=headers, timeout=10)
                         response.raise_for_status()
                         data = response.json()
-                        st.write("API Response:", data)  # Debug: Log the full response
+                        st.write("API Response:", data)
                         if data.get("status") == "error" and data.get("msg") == "user not found":
-                            st.error(
-                                f"User {official_username} not found in Twitter API. Please verify the CoinMarketCap URL or Twitter username.")
+                            st.warning(
+                                f"Пользователь {official_username} не найден в Twitter API. Аналитика продолжится без данных о подписчиках.")
                         elif data.get("data"):
                             user_data = data["data"][0]
                             followers_count = user_data.get("public_metrics", {}).get("followers_count", 0)
                             following_count = user_data.get("public_metrics", {}).get("following_count", 0)
-                            st.write(f"Followers: {followers_count}")
-                            st.write(f"Following: {following_count}")
+                            st.write(f"Подписчики: {followers_count}")
+                            st.write(f"Подписки: {following_count}")
                         else:
-                            st.error("No user data found in API response.")
+                            st.warning(
+                                "Нет данных о пользователе в ответе API. Аналитика продолжится без данных о подписчиках.")
                     except requests.RequestException as e:
-                        st.error(f"Ошибка при запросе к Twitter API: {e}")
+                        st.warning(
+                            f"Ошибка при запросе к Twitter API: {e}. Аналитика продолжится без данных о подписчиках.")
                     except Exception as e:
-                        st.error(f"Ошибка при получении данных о пользователе: {e}")
+                        st.warning(
+                            f"Ошибка при получении данных о пользователе: {e}. Аналитика продолжится без данных о подписчиках.")
 
-                # Official tweets
-                official_tweets_df = tweets_df[tweets_df[
-                                                   "author_username"].str.lower() == official_username.lower()] if official_username else pd.DataFrame()
+                # Aggregate metrics
+                official_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
+                other_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
+
                 if not official_tweets_df.empty:
                     official_metrics = official_tweets_df.groupby("date").agg({
                         "view_count": "sum",
@@ -2972,12 +2989,8 @@ try:
                         "reply_count": "sum"
                     }).reset_index()
                 else:
-                    official_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
                     st.warning("Нет твитов от официального аккаунта для анализа.")
 
-                # Other tweets
-                other_tweets_df = tweets_df[tweets_df[
-                                                "author_username"].str.lower() != official_username.lower()] if official_username else tweets_df
                 if not other_tweets_df.empty:
                     other_metrics = other_tweets_df.groupby("date").agg({
                         "view_count": "sum",
@@ -2985,25 +2998,26 @@ try:
                         "reply_count": "sum"
                     }).reset_index()
                 else:
-                    other_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
                     st.warning("Нет других твитов для анализа.")
 
                 # Plotting
                 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
 
                 # Official tweets plot
-                ax1.plot(official_metrics["date"], official_metrics["view_count"], label="Views", marker="o")
-                ax1.plot(official_metrics["date"], official_metrics["retweet_count"], label="Retweets", marker="o")
-                ax1.plot(official_metrics["date"], official_metrics["reply_count"], label="Replies", marker="o")
+                if not official_metrics.empty:
+                    ax1.plot(official_metrics["date"], official_metrics["view_count"], label="Просмотры", marker="o")
+                    ax1.plot(official_metrics["date"], official_metrics["retweet_count"], label="Ретвиты", marker="o")
+                    ax1.plot(official_metrics["date"], official_metrics["reply_count"], label="Ответы", marker="o")
                 ax1.set_title("Аналитика твитов официального аккаунта")
                 ax1.set_ylabel("Количество")
                 ax1.legend()
                 ax1.grid(True)
 
                 # Other tweets plot
-                ax2.plot(other_metrics["date"], other_metrics["view_count"], label="Views", marker="o")
-                ax2.plot(other_metrics["date"], other_metrics["retweet_count"], label="Retweets", marker="o")
-                ax2.plot(other_metrics["date"], other_metrics["reply_count"], label="Replies", marker="o")
+                if not other_metrics.empty:
+                    ax2.plot(other_metrics["date"], other_metrics["view_count"], label="Просмотры", marker="o")
+                    ax2.plot(other_metrics["date"], other_metrics["retweet_count"], label="Ретвиты", marker="o")
+                    ax2.plot(other_metrics["date"], other_metrics["reply_count"], label="Ответы", marker="o")
                 ax2.set_title("Аналитика остальных твитов")
                 ax2.set_xlabel("Дата")
                 ax2.set_ylabel("Количество")
@@ -3012,6 +3026,10 @@ try:
 
                 plt.xticks(rotation=45)
                 st.pyplot(fig)
+
+                # Display raw data for debugging
+                st.write("Официальные твиты:", official_tweets_df[["text", "created_at", "author_username"]].head())
+                st.write("Остальные твиты:", other_tweets_df[["text", "created_at", "author_username"]].head())
 except Exception as e:
     st.error(f"Ошибка при обработке аналитики: {str(e)}")
 
