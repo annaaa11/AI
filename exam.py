@@ -2738,6 +2738,58 @@ if st.button("Загрузить твиты"):
         st.error("Пожалуйста, введите URL CoinMarketCap.")
 
 ##################
+
+st.subheader("Очистка дубликатов в векторной базе")
+
+if st.button("Проверить и удалить дубликаты"):
+    try:
+        # Fetch all documents
+        all_docs = vector_store.similarity_search("", k=1000)
+        tweet_id_to_docs = {}
+        for doc in all_docs:
+            tweet_id = doc.metadata.get("tweet_id")
+            if tweet_id:
+                if tweet_id not in tweet_id_to_docs:
+                    tweet_id_to_docs[tweet_id] = []
+                tweet_id_to_docs[tweet_id].append(doc)
+
+        duplicates_found = False
+        ids_to_delete = []
+        for tweet_id, docs in tweet_id_to_docs.items():
+            if len(docs) > 1:
+                duplicates_found = True
+                # Keep the document with valid author_username and created_at, delete others
+                valid_doc = None
+                for doc in docs:
+                    if (doc.metadata.get("author_username") != "unknown" and
+                            doc.metadata.get("created_at") and
+                            doc.metadata.get("author_type") == "official"):
+                        valid_doc = doc
+                        break
+                if not valid_doc:
+                    valid_doc = docs[0]  # Fallback to first doc if no valid one found
+                # Mark other docs for deletion
+                for doc in docs:
+                    if doc != valid_doc:
+                        doc_id = doc.metadata.get("id", None)  # Assumes Pinecone stores doc ID in metadata
+                        if doc_id:
+                            ids_to_delete.append(doc_id)
+                            st.write(
+                                f"Будет удален дубликат: tweet_id={tweet_id}, author_username={doc.metadata['author_username']}, doc_id={doc_id}")
+
+        if ids_to_delete:
+            try:
+                vector_store.delete(ids=ids_to_delete)
+                st.success(f"Удалено {len(ids_to_delete)} дубликатов из векторной базы.")
+            except Exception as e:
+                st.error(f"Ошибка при удалении дубликатов: {str(e)}")
+        elif duplicates_found:
+            st.info("Обнаружены дубликаты, но не удалось определить ID для удаления.")
+        else:
+            st.info("Дубликаты в векторной базе не найдены.")
+    except Exception as e:
+        st.error(f"Ошибка при проверке векторной базы: {str(e)}")
+
 # Analytics section
 st.subheader("Аналитика твитов")
 
