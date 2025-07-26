@@ -2554,13 +2554,15 @@ if st.button("Загрузить твиты"):
 
             # Поиск твитов
             tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date, limit, min_retweets, min_replies)
-            st.session_state["tweets"] = tweets  # Сохраняем твиты в сессии
+            st.session_state["tweets"] = tweets  # Сохраняем твиты в сессии для отладки
+            st.write(f"Найдено {len(tweets)} уникальных твитов.")
 
             if tweets:
                 docs = []
                 doc_ids = []
                 new_id_data = {}
                 existing_ids = set(id_data.values())
+                processed_tweets = set()  # Для отслеживания уникальных комбинаций tweet_id и author_username
 
                 for tweet in tweets:
                     text = tweet.get("text", "")
@@ -2568,27 +2570,47 @@ if st.button("Загрузить твиты"):
                         continue
 
                     tweet_id = tweet.get("id_str", str(uuid4()))
-                    if tweet_id in existing_ids:
-                        st.write(f"Твит {tweet_id} уже существует, пропускаем.")
+                    author_username = tweet.get("user", {}).get("screen_name", "unknown")
+                    unique_key = f"{tweet_id}_{author_username}"  # Уникальный ключ для комбинации tweet_id и author_username
+
+                    if unique_key in processed_tweets:
+                        st.write(f"Твит {tweet_id} от {author_username} уже обработан, пропускаем.")
                         continue
 
-                    author_username = tweet.get("user", {}).get("screen_name", "unknown")
+                    # Проверка на существование в existing_ids (основана на tweet_id)
+                    if tweet_id in existing_ids:
+                        st.write(f"Твит {tweet_id} уже существует в базе, пропускаем.")
+                        continue
+
+                    # Определение author_type
                     is_official = author_username.lower() == official_username.lower()
                     author_type = "official" if is_official else "external"
+
+                    # Получение created_at и валидация
+                    created_at = tweet.get("created_at")
+                    if not created_at or not isinstance(created_at, str):
+                        st.error(f"Твит {tweet_id} не содержит валидного created_at, пропускаем.")
+                        continue
+                    try:
+                        # Попытка преобразования в ISO 8601, если формат некорректен
+                        created_at = pd.to_datetime(created_at, utc=True).isoformat()
+                    except ValueError:
+                        st.error(f"Некорректный формат created_at для твита {tweet_id}, используем текущую дату.")
+                        created_at = datetime.utcnow().isoformat()
 
                     public_metrics = tweet.get("public_metrics", {})
                     retweet_count = public_metrics.get("retweet_count", tweet.get("retweet_count", 0))
                     reply_count = public_metrics.get("reply_count", tweet.get("reply_count", 0))
                     view_count = public_metrics.get("view_count", tweet.get("view_count", 0))
 
-                    st.write(f"Tweet ID: {tweet_id}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
+                    st.write(f"Tweet ID: {tweet_id}, Author: {author_username}, Created At: {created_at}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
 
                     doc = Document(
                         page_content=text,
                         metadata={
                             "source": f"twitter_{official_username}",
                             "tweet_id": tweet_id,
-                            "created_at": tweet.get("created_at", ""),
+                            "created_at": created_at,
                             "retweet_count": retweet_count,
                             "reply_count": reply_count,
                             "view_count": view_count,
@@ -2603,8 +2625,9 @@ if st.button("Загрузить твиты"):
 
                     new_id = str(uuid4())
                     doc_ids.append(new_id)
-                    key_name = f"twitter_{official_username}_{tweet_id}"
+                    key_name = f"twitter_{official_username}_{tweet_id}_{author_username}"
                     new_id_data[key_name] = new_id
+                    processed_tweets.add(unique_key)
 
                 # Обновление JSON
                 try:
