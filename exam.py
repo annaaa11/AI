@@ -2746,9 +2746,7 @@ st.subheader("Очистка дубликатов в векторной базе
 
 if st.button("Проверить и удалить дубликаты"):
     try:
-        # Initialize Pinecone client (adjust API key and index name as needed)
-        pc = Pinecone(api_key="your_pinecone_api_key")
-        index = pc.Index("your_index_name")  # Replace with your Pinecone index name
+
 
         # Fetch all documents for the project
         all_docs = vector_store.similarity_search("", k=1000, filter={"coinmarketcap_url": coinmarketcap_url})
