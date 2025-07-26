@@ -2738,10 +2738,10 @@ if st.button("Загрузить твиты"):
         st.error("Пожалуйста, введите URL CoinMarketCap.")
 
 ##################
-
 def normalize_url(url):
     """Normalize URL by removing trailing slash."""
     return url.rstrip("/")
+
 
 if st.button("Проверить и удалить дубликаты"):
     try:
@@ -2754,39 +2754,44 @@ if st.button("Проверить и удалить дубликаты"):
             normalized_url + "/"
         ]
 
-        # Init
+        # Initialize
         dimension = index.describe_index_stats()['dimension']
         dummy_vector = [0.0] * dimension
         top_k = 1000
         all_docs = []
 
-        # Выполняем 2 запроса: с URL со слешем и без
+        # Fetch documents for both URL variants
         for url in filter_url_variants:
             query_filter = {"coinmarketcap_url": url}
-
-            query_result = index.query(
-                vector=dummy_vector,
-                top_k=top_k,
-                filter=query_filter,
-                include_metadata=True
-            )
-
-            matches = query_result.get("matches", [])
-            st.write(f"Найдено {len(matches)} документов для URL: {url}")
-
-            for match in matches:
-                metadata = match.get("metadata", {})
-                doc_id = match.get("id")
-                tweet_id = str(metadata.get("tweet_id")) if metadata.get("tweet_id") else None
-                if tweet_id:
-                    all_docs.append(Document(
-                        page_content="",
-                        metadata={**metadata, "doc_id": doc_id, "tweet_id": tweet_id}
-                    ))
+            last_id = None
+            while True:
+                q_filter = query_filter.copy()
+                if last_id:
+                    q_filter["$and"] = [{"doc_id": {"$gt": last_id}}]
+                query_result = index.query(
+                    vector=dummy_vector,
+                    top_k=top_k,
+                    filter=q_filter,
+                    include_metadata=True
+                )
+                matches = query_result.get("matches", [])
+                st.write(f"Найдено {len(matches)} документов для URL: {url}")
+                for match in matches:
+                    metadata = match.get("metadata", {})
+                    doc_id = match.get("id")
+                    tweet_id = str(metadata.get("tweet_id")) if metadata.get("tweet_id") else None
+                    if tweet_id:
+                        all_docs.append(Document(
+                            page_content="",
+                            metadata={**metadata, "doc_id": doc_id, "tweet_id": tweet_id}
+                        ))
+                if len(matches) < top_k:
+                    break
+                last_id = matches[-1]["id"]
 
         st.write(f"Всего найдено документов: {len(all_docs)}")
 
-        # Группировка по tweet_id
+        # Group by tweet_id
         tweet_id_to_docs = {}
         for doc in all_docs:
             tweet_id = doc.metadata["tweet_id"]
@@ -2799,8 +2804,7 @@ if st.button("Проверить и удалить дубликаты"):
             if len(docs) > 1:
                 duplicates_found = True
                 st.warning(f"Найден дубликат: tweet_id={tweet_id}, всего версий: {len(docs)}")
-
-                # Оставляем "лучший" документ
+                # Keep the "best" document
                 valid_doc = next((
                     d for d in docs
                     if d.metadata.get("author_username") != "unknown"
@@ -2827,6 +2831,15 @@ if st.button("Проверить и удалить дубликаты"):
 
     except Exception as e:
         st.error(f"Ошибка при проверке векторной базы: {str(e)}")
+
+if st.button("Удалить конкретный документ"):
+    doc_id_to_delete = st.text_input("Введите ID документа для удаления (например, dc82727d-c885-4ca8-a4d2-789aa7037841):")
+    if doc_id_to_delete:
+        try:
+            index.delete(ids=[doc_id_to_delete])
+            st.success(f"Документ с ID {doc_id_to_delete} удален.")
+        except Exception as e:
+            st.error(f"Ошибка при удалении документа {doc_id_to_delete}: {str(e)}")
 
 
 # Analytics section
