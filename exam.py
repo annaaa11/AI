@@ -1926,83 +1926,56 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount("https://", HTTPAdapter(max_retries=retries))
 
-    all_tweets = []
-    remaining_limit = limit
-    max_iterations = 5  # Ограничение числа итераций для предотвращения зависания
-    iteration_count = 0
-
-    # Sanitize queries to avoid invalid characters
-    query = query.replace('"', '').replace("'", '').strip()
-    if " " in query:
-        query = f'"{query}"'
-    project_name_query = f'"{project_name}"'
-    project_symbol_query = f"${project_symbol}"
-
-    # Define queries
-    queries = [
-        f"from:{username}",  # Tweets from the official account
-        f"{project_name_query} OR {project_symbol_query}"  # Tweets containing project name or symbol
-    ]
-    st.write(f"Queries to execute: {queries}")
-
-    for q in queries:
-        while remaining_limit > 0 and iteration_count < max_iterations:
-            current_limit = min(20, remaining_limit)
+    def fetch(query_string):
+        try:
             params = {
-                "query": f"{q} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
+                "query": f"{query_string} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
                 "queryType": "Latest",
-                "limit": current_limit
+                "limit": limit
             }
-            st.write(f"Executing query: {params['query']}")
+            st.write(f"Поиск по запросу: {params['query']}")
+            response = session.get(url, headers=headers, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
 
-            try:
-                response = session.get(url, headers=headers, params=params, timeout=10)
-                st.write(f"API Response Status: {response.status_code}")
-                st.write(f"API Response Content (first 500 chars): {response.text[:500]}...")
-                response.raise_for_status()
-                data = response.json()
-                st.write(f"API Response Data structure: {list(data.keys())}")
-
-                # Извлечение твитов из ответа
-                tweets = []
-                if "tweets" in data:
-                    tweets = [item for item in data["tweets"] if item.get("type") == "tweet"]
-                elif "data" in data:
-                    tweets = [item for item in data["data"] if item.get("type") == "tweet"]
-                elif "results" in data:
-                    tweets = [item for item in data["results"] if item.get("type") == "tweet"]
-                st.write(f"Extracted {len(tweets)} tweets from response")
-
-                # Форматирование твитов для совместимости
-                formatted_tweets = []
-                for tweet in tweets:
-                    formatted_tweet = {
-                        "id_str": str(tweet.get("id", tweet.get("id_str", str(uuid4())))),
-                        "text": tweet.get("text", ""),
-                        "created_at": tweet.get("created_at", ""),
-                        "user": {"screen_name": tweet.get("user", {}).get("screen_name", "unknown")},
-                        "public_metrics": {
-                            "retweet_count": tweet.get("retweetCount", 0),
-                            "reply_count": tweet.get("replyCount", 0),
-                            "view_count": tweet.get("viewCount", 0)
-                        }
-                    }
-                    formatted_tweets.append(formatted_tweet)
-
-                all_tweets.extend(formatted_tweets)
-                remaining_limit -= current_limit
-
-                if len(tweets) < current_limit:
+            tweets = []
+            for key in ["tweets", "data", "results"]:
+                if key in data:
+                    tweets = [t for t in data[key] if t.get("type") == "tweet"]
                     break
 
-                iteration_count += 1
-            except requests.RequestException as e:
-                st.error(f"API Error for query '{q}': {str(e)} - Response: {response.text[:500]}...")
-                break
+            result = []
+            for tweet in tweets:
+                result.append({
+                    "id_str": str(tweet.get("id", tweet.get("id_str", str(uuid4())))),
+                    "text": tweet.get("text", ""),
+                    "created_at": tweet.get("created_at", ""),
+                    "user": {"screen_name": tweet.get("user", {}).get("screen_name", "unknown")},
+                    "public_metrics": {
+                        "retweet_count": tweet.get("retweetCount", 0),
+                        "reply_count": tweet.get("replyCount", 0),
+                        "view_count": tweet.get("viewCount", 0)
+                    }
+                })
+            return result
+        except Exception as e:
+            st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
+            return []
 
-    unique_tweets = {tweet["id_str"]: tweet for tweet in all_tweets}.values()
-    st.write(f"Found {len(unique_tweets)} unique tweets")
-    return list(unique_tweets)[:limit]
+    # Запрос от официального аккаунта
+    from_query = f"from:{username}"
+    official_tweets = fetch(from_query)
+
+    # Запрос по ключевым словам
+    project_name_query = f'"{project_name}"'
+    project_symbol_query = f"${project_symbol}"
+    keyword_query = f"{project_name_query} OR {project_symbol_query}"
+    keyword_tweets = fetch(keyword_query)
+
+    # Объединение с удалением дубликатов по id_str
+    all_tweets = {tweet["id_str"]: tweet for tweet in official_tweets + keyword_tweets}
+    st.write(f"Объединено {len(all_tweets)} уникальных твитов.")
+    return list(all_tweets.values())[:limit]
 
 # Function to search documents
 def doc_ser(user_text: str):
