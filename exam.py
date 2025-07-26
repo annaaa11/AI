@@ -2352,7 +2352,6 @@ if os.path.exists(json_path):
 else:
     id_data = {}
 
-
 # Function to parse CoinMarketCap project page
 def parse_coinmarketcap_project(url):
     headers = {
@@ -2400,10 +2399,8 @@ def parse_coinmarketcap_project(url):
         "url": url
     }
 
-
 # Function to search tweets
-def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
-                           limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
+def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime, limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     headers = {"x-api-key": twitter_api_key}
     since_str = start_date.strftime("%Y-%m-%d")
@@ -2432,17 +2429,22 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
 
             result = []
             for tweet in tweets:
+                # Use current timestamp as fallback for missing created_at
+                created_at = tweet.get("created_at")
+                if not created_at or not isinstance(created_at, str):
+                    created_at = datetime.utcnow().isoformat()
                 result.append({
                     "id_str": str(tweet.get("id", tweet.get("id_str", str(uuid4())))),
                     "text": tweet.get("text", ""),
-                    "created_at": tweet.get("created_at", ""),
-                    "user": {"screen_name": tweet.get("user", {}).get("screen_name", "unknown")},
+                    "created_at": created_at,
+                    "user": {"screen_name": tweet.get("user", {}).get("screen_name", username) or username},
                     "public_metrics": {
                         "retweet_count": tweet.get("retweetCount", 0),
                         "reply_count": tweet.get("replyCount", 0),
                         "view_count": tweet.get("viewCount", 0)
                     }
                 })
+            st.write(f"Fetched {len(result)} tweets with sample created_at: {result[0]['created_at'] if result else 'None'}")
             return result
         except Exception as e:
             st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
@@ -2463,7 +2465,6 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     st.write(f"Объединено {len(all_tweets)} уникальных твитов.")
     return list(all_tweets.values())
 
-
 # Function to search documents
 def doc_ser(user_text: str):
     """
@@ -2481,7 +2482,6 @@ def doc_ser(user_text: str):
     except Exception as e:
         st.error(f"Error during vector store search: {str(e)}")
         return []
-
 
 # LLM and agent
 try:
@@ -2540,11 +2540,10 @@ if st.button("Загрузить твиты"):
             project_name = project_info["name"]
             project_symbol = project_info["symbol"]
             official_username = urlparse(twitter_url).path.strip("/").split("/")[-1]
-            if not official_username:
-                st.error("Не удалось извлечь username из Twitter URL.")
+            if not official_username or official_username == "":
+                st.error("Не удалось извлечь валидный username из Twitter URL.")
                 st.stop()
-            st.info(
-                f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
+            st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
 
             # Очистка существующих данных для проекта
             try:
@@ -2554,8 +2553,7 @@ if st.button("Загрузить твиты"):
                 st.error(f"Ошибка при очистке базы данных: {str(e)}")
 
             # Поиск твитов
-            tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date,
-                                            limit, min_retweets, min_replies)
+            tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date, limit, min_retweets, min_replies)
             st.session_state["tweets"] = tweets  # Сохраняем твиты в сессии
 
             if tweets:
@@ -2583,8 +2581,7 @@ if st.button("Загрузить твиты"):
                     reply_count = public_metrics.get("reply_count", tweet.get("reply_count", 0))
                     view_count = public_metrics.get("view_count", tweet.get("view_count", 0))
 
-                    st.write(
-                        f"Tweet ID: {tweet_id}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
+                    st.write(f"Tweet ID: {tweet_id}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
 
                     doc = Document(
                         page_content=text,
@@ -2639,7 +2636,8 @@ if st.button("Показать аналитику"):
     else:
         # Fetch followers and following count
         try:
-            first_tweet = next((t for t in st.session_state["tweets"] if "user" in t and "screen_name" in t["user"]),
+            first_tweet = next((t for t in st.session_state["tweets"] if
+                                "user" in t and "screen_name" in t["user"] and t["user"]["screen_name"] != "unknown"),
                                None)
             twitter_url = first_tweet["user"]["screen_name"] if first_tweet else None
             if twitter_url:
@@ -2650,9 +2648,11 @@ if st.button("Показать аналитику"):
                 response.raise_for_status()
                 data = response.json()
                 st.write("API Response:", data)  # Debug: Log the full response
-                user_data = data.get("data", [])
-                if user_data:
-                    user_data = user_data[0]
+                if data.get("status") == "error" and data.get("msg") == "user not found":
+                    st.error(
+                        f"User {twitter_url} not found in Twitter API. Please verify the CoinMarketCap URL or Twitter username.")
+                elif data.get("data"):
+                    user_data = data["data"][0]
                     followers_count = user_data.get("public_metrics", {}).get("followers_count", 0)
                     following_count = user_data.get("public_metrics", {}).get("following_count", 0)
                     st.write(f"Followers: {followers_count}")
@@ -2660,7 +2660,7 @@ if st.button("Показать аналитику"):
                 else:
                     st.error("No user data found in API response.")
             else:
-                st.error("Не удалось определить username из твитов.")
+                st.error("Не удалось определить валидный username из твитов.")
         except requests.RequestException as e:
             st.error(f"Ошибка при запросе к Twitter API: {e}")
         except Exception as e:
@@ -2677,7 +2677,8 @@ if st.button("Показать аналитику"):
         tweets_df["created_at"] = pd.to_datetime(tweets_df["created_at"], errors="coerce", utc=True)
         tweets_df = tweets_df.dropna(subset=["created_at"])  # Remove rows with invalid dates
         if tweets_df.empty:
-            st.error("Нет данных с валидными датами для анализа. Проверьте формат created_at в твитах.")
+            st.error(
+                "Нет данных с валидными датами для анализа. Проверьте формат created_at в твитах или убедитесь, что твиты загружены.")
         else:
             tweets_df["date"] = tweets_df["created_at"].dt.date
 
