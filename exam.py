@@ -2591,8 +2591,10 @@ def already_exists(tweet_id: str) -> bool:
     """Проверяет, есть ли вектор с таким tweet_id в Pinecone"""
     try:
         response = index.fetch(ids=[tweet_id])
-        # For pinecone-client>=3.0.0, use response.vectors
-        return tweet_id in (response.vectors if hasattr(response, 'vectors') else response.get("vectors", {}))
+        exists = tweet_id in (response.vectors if hasattr(response, 'vectors') else response.get("vectors", {}))
+        if exists:
+            st.write(f"Pinecone: tweet_id {tweet_id} уже существует")
+        return exists
     except Exception as e:
         st.error(f"Ошибка при проверке tweet_id {tweet_id} в Pinecone: {str(e)}")
         return False
@@ -2631,6 +2633,22 @@ if st.button("Загрузить твиты"):
                 st.error(f"Ошибка при очистке векторной базы: {str(e)}")
                 st.stop()
 
+            # Clear JSON entries for this project
+            try:
+                new_id_data = {}
+                filtered_id_data = {
+                    k: v for k, v in id_data.items()
+                    if not k.startswith(f"twitter_{official_username}_")
+                }
+                with open(json_path, "w", encoding="utf-8") as jf:
+                    json.dump(filtered_id_data, jf, ensure_ascii=False)
+                id_data.clear()
+                id_data.update(filtered_id_data)
+                st.info("JSON данные для этого проекта очищены.")
+            except Exception as e:
+                st.error(f"Ошибка при очистке JSON: {str(e)}")
+                st.stop()
+
             # Search tweets
             tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date, limit, min_retweets, min_replies)
             st.session_state["tweets"] = tweets
@@ -2640,8 +2658,7 @@ if st.button("Загрузить твиты"):
             if tweets:
                 uploaded = 0
                 skipped = 0
-                new_id_data = {}
-                existing_ids = set(id_data.values()) if id_data else set()
+                existing_ids = set()
 
                 for tweet in tweets:
                     text = tweet.get("text", "")
@@ -2650,10 +2667,15 @@ if st.button("Загрузить твиты"):
                         continue
 
                     tweet_id = tweet.get("id_str", str(uuid4()))
-                    if already_exists(tweet_id) or tweet_id in existing_ids:
-                        st.write(f"⏩ Пропущено (дубликат): tweet_id={tweet_id}")
+                    if already_exists(tweet_id):
+                        st.write(f"⏩ Пропущено (дубликат в Pinecone): tweet_id={tweet_id}")
                         skipped += 1
                         continue
+                    if tweet_id in existing_ids:
+                        st.write(f"⏩ Пропущено (дубликат в JSON): tweet_id={tweet_id}")
+                        skipped += 1
+                        continue
+                    existing_ids.add(tweet_id)
 
                     author_username = tweet.get("user", {}).get("screen_name", None)
                     if not author_username:
