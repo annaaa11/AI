@@ -2171,7 +2171,7 @@ for message in st.session_state['data']['messages']:
 
     with st.chat_message(role):
         st.markdown(content)
-        st.write("RAW message content:", repr(message.content))
+
 
 
 
