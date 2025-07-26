@@ -2591,7 +2591,8 @@ def already_exists(tweet_id: str) -> bool:
     """Проверяет, есть ли вектор с таким tweet_id в Pinecone"""
     try:
         response = index.fetch(ids=[tweet_id])
-        return tweet_id in response.get("vectors", {})
+        # For pinecone-client>=3.0.0, use response.vectors
+        return tweet_id in (response.vectors if hasattr(response, 'vectors') else response.get("vectors", {}))
     except Exception as e:
         st.error(f"Ошибка при проверке tweet_id {tweet_id} в Pinecone: {str(e)}")
         return False
@@ -2649,7 +2650,7 @@ if st.button("Загрузить твиты"):
                         continue
 
                     tweet_id = tweet.get("id_str", str(uuid4()))
-                    if already_exists(tweet_id):
+                    if already_exists(tweet_id) or tweet_id in existing_ids:
                         st.write(f"⏩ Пропущено (дубликат): tweet_id={tweet_id}")
                         skipped += 1
                         continue
@@ -2696,11 +2697,11 @@ if st.button("Загрузить твиты"):
                             "coinmarketcap_url": normalized_coinmarketcap_url,
                             "author_username": author_username,
                             "author_type": author_type,
-                            "doc_id": tweet_id  # Use tweet_id as doc_id
+                            "doc_id": tweet_id
                         }
                     )
 
-                    # Add to vector store using upsert
+                    # Add to vector store
                     try:
                         vector_store.add_documents([doc], ids=[tweet_id])
                         st.success(f"✅ Загружено: tweet_id={tweet_id}")
