@@ -2582,7 +2582,6 @@ if "tweets" not in st.session_state:
     st.session_state["tweets"] = []
 #################33
 
-
 def normalize_url(url: str) -> str:
     """Убирает завершающий слэш"""
     return url.strip().rstrip("/")
@@ -2614,19 +2613,6 @@ if st.button("Загрузить твиты"):
             if not official_username or official_username == "":
                 st.error("Не удалось извлечь валидный username из Twitter URL.")
                 st.stop()
-
-            # Validate Twitter username
-            try:
-                url = f"https://api.twitterapi.io/twitter/user/lookup?usernames={official_username}"
-                headers = {"x-api-key": twitter_api_key}
-                response = requests.get(url, headers=headers, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-                if data.get("status") == "error" and data.get("msg") == "user not found":
-                    st.warning(f"Пользователь {official_username} не найден в Twitter API. Попробуйте проверить URL CoinMarketCap.")
-            except requests.RequestException as e:
-                st.warning(f"Ошибка при проверке {official_username} в Twitter API: {e}. Продолжаем с текущим username.")
-
             st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
 
             # Clear session state
@@ -2903,6 +2889,25 @@ if st.button("Удалить конкретный документ"):
         except Exception as e:
             st.error(f"Ошибка при удалении документа {doc_id_to_delete}: {str(e)}")
 
+
+def get_user_info(username):
+    st.write(f"Проверка профиля пользователя {username}...")
+    url = f"https://api.twitterapi.io/twitter/user/{username}"
+    headers = {"x-api-key": twitter_api_key}
+    response = requests.get(url, headers=headers, timeout=10)
+    st.write(f"Код ответа: {response.status_code}")
+    st.write(f"Ответ: {response.text}")
+    if response.status_code == 200:
+        data = response.json()
+        user = data.get("user") or data.get("data") or {}
+        followers = user.get("followers") or user.get("public_metrics", {}).get("followers_count", 0)
+        following = user.get("following") or user.get("public_metrics", {}).get("following_count", 0)
+        return followers, following
+    else:
+        st.warning(f"Ошибка при получении профиля: {response.status_code} {response.text}")
+        return 0, 0
+
+
 st.subheader("Аналитика твитов")
 
 try:
@@ -2953,7 +2958,7 @@ try:
 
             # Debug: Check tweet data
             st.write("Все твиты в базе:",
-                     tweets_df[["tweet_id", "author_username", "author_type", "created_at"]].head().to_dict())
+                     tweets_df[["tweet_id", "author_username", "author_type", "created_at"]].to_dict(orient="records"))
 
             # Convert created_at to datetime
             tweets_df["created_at"] = pd.to_datetime(tweets_df["created_at"], errors="coerce", utc=True)
@@ -2976,32 +2981,13 @@ try:
                         official_username = first_official_doc.metadata.get("author_username")
 
                 if official_username:
-                    try:
-                        st.write(f"Attempting to fetch data for username: {official_username}")
-                        url = f"https://api.twitterapi.io/twitter/user/lookup?usernames={official_username}"
-                        headers = {"x-api-key": twitter_api_key}
-                        response = requests.get(url, headers=headers, timeout=10)
-                        response.raise_for_status()
-                        data = response.json()
-                        st.write("API Response:", data)
-                        if data.get("status") == "error" and data.get("msg") == "user not found":
-                            st.warning(
-                                f"Пользователь {official_username} не найден в Twitter API. Аналитика продолжится без данных о подписчиках.")
-                        elif data.get("data"):
-                            user_data = data["data"][0]
-                            followers_count = user_data.get("public_metrics", {}).get("followers_count", 0)
-                            following_count = user_data.get("public_metrics", {}).get("following_count", 0)
-                            st.write(f"Подписчики: {followers_count}")
-                            st.write(f"Подписки: {following_count}")
-                        else:
-                            st.warning(
-                                "Нет данных о пользователе в ответе API. Аналитика продолжится без данных о подписчиках.")
-                    except requests.RequestException as e:
+                    followers, following = get_user_info(official_username)
+                    if followers != 0 or following != 0:
+                        st.write(f"Подписчики: {followers}")
+                        st.write(f"Подписки: {following}")
+                    else:
                         st.warning(
-                            f"Ошибка при запросе к Twitter API: {e}. Аналитика продолжится без данных о подписчиках.")
-                    except Exception as e:
-                        st.warning(
-                            f"Ошибка при получении данных о пользователе: {e}. Аналитика продолжится без данных о подписчиках.")
+                            f"Не удалось получить данные о подписчиках для {official_username}. Аналитика продолжится без этих данных.")
                 else:
                     st.warning("Официальный аккаунт не найден в данных. Аналитика продолжится по author_type.")
 
@@ -3030,7 +3016,7 @@ try:
                     st.warning("Нет других твитов для анализа.")
 
                 # Plotting
-                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
+                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
 
                 # Official tweets plot
                 if not official_metrics.empty:
@@ -3054,10 +3040,10 @@ try:
                 ax2.grid(True)
 
                 plt.xticks(rotation=45)
+                plt.tight_layout()
                 st.pyplot(fig)
 
                 # Display raw data
-
                 st.write("Официальные твиты:",
                          official_tweets_df[["tweet_id", "text", "created_at", "author_username", "author_type"]])
                 st.write("Остальные твиты:",
