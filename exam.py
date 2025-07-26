@@ -2739,80 +2739,89 @@ if st.button("Загрузить твиты"):
 
 ##################
 
-
-
-st.subheader("Очистка дубликатов в векторной базе")
-
 def normalize_url(url):
     """Normalize URL by removing trailing slash."""
     return url.rstrip("/")
 
 if st.button("Проверить и удалить дубликаты"):
     try:
-        # Initialize Pinecone client
-
-        # Normalize coinmarketcap_url
+        # Normalize the URL
         normalized_url = normalize_url(coinmarketcap_url)
 
-        # Fetch all documents with pagination
-        all_docs = []
+        # Query filter by exact or slash-ending URL
         query_filter = {
             "$or": [
                 {"coinmarketcap_url": normalized_url},
                 {"coinmarketcap_url": normalized_url + "/"}
             ]
         }
+
+        # Init empty list to collect all docs
+        all_docs = []
         top_k = 1000
-        last_id = None
+        cursor = None
+
+        # Use vectorless query if supported (or dummy vector if required)
         while True:
-            query_result = index.query(
-                vector=[0] * index.describe_index_stats()['dimension'],  # Adjust dimension
-                top_k=top_k,
-                filter=query_filter,
-                include_metadata=True
-            )
+            query_args = {
+                "top_k": top_k,
+                "include_metadata": True,
+                "filter": query_filter
+            }
+
+            # If Pinecone requires a vector, provide dummy
+            if "vector" in index.query.__code__.co_varnames:
+                query_args["vector"] = [0.0] * index.describe_index_stats()['dimension']
+
+            if cursor:
+                query_args["namespace"] = ""  # if you're using namespaces
+                query_args["next_page_token"] = cursor
+
+            query_result = index.query(**query_args)
+
             matches = query_result["matches"]
+            if not matches:
+                break
+
             all_docs.extend([
                 Document(
-                    page_content="",  # Content not needed for cleaning
+                    page_content="",
                     metadata={**match["metadata"], "doc_id": match["id"]}
                 ) for match in matches
             ])
-            if len(matches) < top_k:
-                break
-            last_id = matches[-1]["id"]
-            query_filter["$and"] = [{"doc_id": {"$gt": last_id}}]
 
+            cursor = query_result.get("next_page_token")
+            if not cursor or len(matches) < top_k:
+                break
+
+        # Group by tweet_id
         tweet_id_to_docs = {}
         for doc in all_docs:
             tweet_id = doc.metadata.get("tweet_id")
             if tweet_id:
-                if tweet_id not in tweet_id_to_docs:
-                    tweet_id_to_docs[tweet_id] = []
-                tweet_id_to_docs[tweet_id].append(doc)
+                tweet_id_to_docs.setdefault(tweet_id, []).append(doc)
 
         duplicates_found = False
         ids_to_delete = []
+
         for tweet_id, docs in tweet_id_to_docs.items():
             if len(docs) > 1:
                 duplicates_found = True
                 st.warning(f"Обнаружен дубликат для tweet_id: {tweet_id}")
-                # Keep the document with valid author_username and created_at
-                valid_doc = None
-                for doc in docs:
-                    if (doc.metadata.get("author_username") != "unknown" and
-                        doc.metadata.get("created_at") and
-                        doc.metadata.get("author_type") == "official"):
-                        valid_doc = doc
-                        break
-                if not valid_doc:
-                    valid_doc = docs[0]  # Fallback to first doc
+
+                # Предпочтительный документ: official + есть author_username + created_at
+                valid_doc = next((
+                    d for d in docs
+                    if d.metadata.get("author_username") != "unknown"
+                    and d.metadata.get("created_at")
+                    and d.metadata.get("author_type") == "official"
+                ), docs[0])
 
                 for doc in docs:
                     if doc != valid_doc:
                         doc_id = doc.metadata.get("doc_id")
                         ids_to_delete.append(doc_id)
-                        st.write(f"Будет удален дубликат: tweet_id={tweet_id}, author_username={doc.metadata['author_username']}, doc_id={doc_id}")
+                        st.write(f"Будет удален дубликат: tweet_id={tweet_id}, author_username={doc.metadata.get('author_username')}, doc_id={doc_id}")
 
         if ids_to_delete:
             try:
@@ -2822,16 +2831,11 @@ if st.button("Проверить и удалить дубликаты"):
                 st.error(f"Ошибка при удалении дубликатов: {str(e)}")
         elif duplicates_found:
             st.warning("Обнаружены дубликаты, но не удалось определить ID для удаления.")
-            for tweet_id, docs in tweet_id_to_docs.items():
-                if len(docs) > 1:
-                    for doc in docs:
-                        st.write(f"Дубликат: tweet_id={tweet_id}, author_username={doc.metadata['author_username']}, doc_id={doc.metadata.get('doc_id', 'N/A')}")
         else:
             st.info("Дубликаты в векторной базе не найдены.")
+
     except Exception as e:
         st.error(f"Ошибка при проверке векторной базы: {str(e)}")
-
-
 
 
 # Analytics section
