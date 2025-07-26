@@ -2596,16 +2596,19 @@ if st.button("Загрузить твиты"):
                 st.stop()
             st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
 
-            # Очистка существующих данных для проекта
+            # Clear existing data for the project
             try:
                 vector_store.delete(filter={"coinmarketcap_url": coinmarketcap_url})
                 st.info("Существующие данные для этого проекта удалены из векторной базы.")
             except Exception as e:
                 st.error(f"Ошибка при очистке базы данных: {str(e)}")
 
-            # Поиск твитов
+            # Clear session state tweets to prevent stale data
+            st.session_state["tweets"] = []
+
+            # Search tweets
             tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date, limit, min_retweets, min_replies)
-            st.session_state["tweets"] = tweets  # Сохраняем твиты в сессии для отладки
+            st.session_state["tweets"] = tweets
             st.write(f"Найдено {len(tweets)} уникальных твитов.")
 
             if tweets:
@@ -2613,48 +2616,44 @@ if st.button("Загрузить твиты"):
                 doc_ids = []
                 new_id_data = {}
                 existing_ids = set(id_data.values())
-                processed_tweets = set()  # Для отслеживания уникальных комбинаций tweet_id и author_username
+                processed_tweet_ids = set()  # Track tweet_ids to prevent duplicates
 
                 for tweet in tweets:
                     text = tweet.get("text", "")
                     if not text:
+                        st.write(f"Твит {tweet.get('id_str', 'unknown')} пропущен: пустой текст.")
                         continue
 
                     tweet_id = tweet.get("id_str", str(uuid4()))
-                    author_username = tweet.get("user", {}).get("screen_name", "unknown")
-                    unique_key = f"{tweet_id}_{author_username}"  # Уникальный ключ для комбинации tweet_id и author_username
+                    if tweet_id in processed_tweet_ids:
+                        st.warning(f"Твит {tweet_id} уже обработан (дубликат), пропускаем.")
+                        st.write(f"Дубликат твита: {tweet}")
+                        continue
+                    processed_tweet_ids.add(tweet_id)
 
-                    if unique_key in processed_tweets:
-                        st.write(f"Твит {tweet_id} от {author_username} уже обработан, пропускаем.")
+                    author_username = tweet.get("user", {}).get("screen_name", None)
+                    if not author_username:
+                        st.warning(f"Твит {tweet_id} не содержит screen_name, пропускаем.")
+                        st.write(f"Проблемный твит: {tweet}")
                         continue
 
-                    # Проверка на существование в existing_ids (основана на tweet_id)
-                    if tweet_id in existing_ids:
-                        st.write(f"Твит {tweet_id} уже существует в базе, пропускаем.")
-                        continue
-
-                    # Определение author_type
+                    # Determine author_type
                     is_official = author_username.lower() == official_username.lower()
                     author_type = "official" if is_official else "external"
 
-                    # Получение created_at и валидация
                     created_at = tweet.get("created_at")
-                    if not created_at or not isinstance(created_at, str):
-                        st.error(f"Твит {tweet_id} не содержит валидного created_at, пропускаем.")
-                        continue
                     try:
-                        # Попытка преобразования в ISO 8601, если формат некорректен
-                        created_at = pd.to_datetime(created_at, utc=True).isoformat()
-                    except ValueError:
-                        st.error(f"Некорректный формат created_at для твита {tweet_id}, используем текущую дату.")
-                        created_at = datetime.utcnow().isoformat()
+                        created_at = pd.to_datetime(created_at, utc=True, errors="raise").isoformat()
+                    except (ValueError, TypeError) as e:
+                        st.warning(f"Некорректный формат created_at для твита {tweet_id}: {created_at}. Пропускаем.")
+                        continue
 
                     public_metrics = tweet.get("public_metrics", {})
-                    retweet_count = public_metrics.get("retweet_count", tweet.get("retweet_count", 0))
-                    reply_count = public_metrics.get("reply_count", tweet.get("reply_count", 0))
-                    view_count = public_metrics.get("view_count", tweet.get("view_count", 0))
+                    retweet_count = public_metrics.get("retweet_count", tweet.get("retweetCount", 0))
+                    reply_count = public_metrics.get("reply_count", tweet.get("replyCount", 0))
+                    view_count = public_metrics.get("view_count", tweet.get("viewCount", 0))
 
-                    st.write(f"Tweet ID: {tweet_id}, Author: {author_username}, Created At: {created_at}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
+                    st.write(f"Добавляется твит: ID={tweet_id}, Author={author_username}, Type={author_type}, Created At={created_at}")
 
                     doc = Document(
                         page_content=text,
@@ -2678,24 +2677,27 @@ if st.button("Загрузить твиты"):
                     doc_ids.append(new_id)
                     key_name = f"twitter_{official_username}_{tweet_id}_{author_username}"
                     new_id_data[key_name] = new_id
-                    processed_tweets.add(unique_key)
 
-                # Обновление JSON
+                # Update JSON
                 try:
                     existing_data = id_data if id_data else {}
                     existing_data.update(new_id_data)
                     with open(json_path, "w", encoding="utf-8") as jf:
                         json.dump(existing_data, jf, ensure_ascii=False)
+                    st.write("JSON файл успешно обновлен.")
                 except Exception as e:
                     st.error(f"Failed to update JSON file: {str(e)}")
                     st.stop()
 
-                # Добавление в векторную базу
+                # Add to vector store
                 try:
                     vector_store.add_documents(docs, ids=doc_ids)
                     st.success(f"Добавлено {len(docs)} твитов, связанных с {project_name} (${project_symbol}).")
                 except Exception as e:
-                    st.error(f"Failed to add documents to vector store: {str(e)}")
+                    st.error(f"Ошибка добавления в векторную базу: {str(e)}")
+                    st.write(f"Документы: {docs}")
+                    st.write(f"ID документов: {doc_ids}")
+                    st.write("Пожалуйста, проверьте структуру документов и убедитесь, что векторная база доступна.")
             else:
                 st.error("Не удалось получить твиты. Проверьте параметры запроса или Twitter API ключ.")
                 st.write("Проверьте отладочную информацию выше для деталей.")
