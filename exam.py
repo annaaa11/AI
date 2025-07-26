@@ -2761,7 +2761,7 @@ try:
                 plt.xticks(rotation=45)
                 st.pyplot(fig)
 except Exception as e:
-    st.error(f"Ошибка при обработке аналитики: {str(e} }")
+    st.error(f"Ошибка при обработке аналитики: {str(e)}")
 
 # Chat with search
 st.subheader("Чат с поиском по векторной базе")
