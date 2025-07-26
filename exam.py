@@ -2426,11 +2426,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
             params = {
                 "query": f"{query_string} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
                 "queryType": "Latest",
-                "limit": limit,
-                # Add user.fields to request username explicitly (if supported by twitterapi.io)
-                "user.fields": "username",
-                "expansions": "author_id",
-                "tweet.fields": "created_at,public_metrics"
+                "limit": limit
             }
             st.write(f"Поиск по запросу: {params['query']}")
             response = session.get(url, headers=headers, params=params, timeout=10)
@@ -2451,11 +2447,13 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
             for tweet in tweets:
                 tweet_id = str(tweet.get("id", tweet.get("id_str", str(uuid4()))))
 
-                # Try to get username (Twitter API v2) or screen_name (v1.1)
+                # Try to get username from author.userName (twitterapi.io), user.username (Twitter API v2), or user.screen_name (v1.1)
+                author = tweet.get("author", {})
                 user = tweet.get("user", {})
-                screen_name = user.get("username", user.get("screen_name", None))
+                screen_name = author.get("userName", user.get("username", user.get("screen_name", None)))
                 if not screen_name:
-                    st.warning(f"Твит {tweet_id} не содержит username или screen_name, пропускаем.")
+                    st.warning(f"Твит {tweet_id} не содержит userName, username, или screen_name, пропускаем.")
+                    st.write(f"Author object for tweet {tweet_id}: {author}")
                     st.write(f"User object for tweet {tweet_id}: {user}")
                     continue
 
@@ -2465,7 +2463,8 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     continue
                 processed_keys.add(unique_key)
 
-                created_at = tweet.get("created_at")
+                # Use createdAt (twitterapi.io) or created_at (Twitter API)
+                created_at = tweet.get("createdAt", tweet.get("created_at", None))
                 try:
                     created_at = pd.to_datetime(created_at, utc=True, errors="raise").isoformat()
                 except (ValueError, TypeError) as e:
