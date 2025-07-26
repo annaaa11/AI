@@ -1975,7 +1975,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     # Объединение с удалением дубликатов по id_str
     all_tweets = {tweet["id_str"]: tweet for tweet in official_tweets + keyword_tweets}
     st.write(f"Объединено {len(all_tweets)} уникальных твитов.")
-    return list(all_tweets.values())[:limit]
+    return list(all_tweets.values())
 
 # Function to search documents
 def doc_ser(user_text: str):
@@ -2165,5 +2165,14 @@ for message in st.session_state['data']['messages']:
     else:
         continue
 
+    content = message.content.strip() if isinstance(message.content, str) else ""
+    if not content:
+        continue  # пропускаем пустые сообщения
+
     with st.chat_message(role):
-        st.markdown(message.content)
+        st.markdown(content)
+        st.write("RAW message content:", repr(message.content))
+
+
+
+
