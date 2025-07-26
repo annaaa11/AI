@@ -2264,7 +2264,8 @@ import json
 import dotenv
 import streamlit as st
 from uuid import uuid4
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone  # Add timezone import
+
 from urllib.parse import urlparse
 import requests
 from requests.adapters import HTTPAdapter
@@ -2400,6 +2401,7 @@ def parse_coinmarketcap_project(url):
     }
 
 # Function to search tweets
+
 def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime, limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     headers = {"x-api-key": twitter_api_key}
@@ -2428,16 +2430,32 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     break
 
             result = []
+            processed_keys = set()
             for tweet in tweets:
-                # Use current timestamp as fallback for missing created_at
+                tweet_id = str(tweet.get("id", tweet.get("id_str", str(uuid4()))))
+                screen_name = tweet.get("user", {}).get("screen_name", None)
+                if not screen_name:
+                    st.warning(f"Твит {tweet_id} не содержит screen_name, пропускаем.")
+                    continue
+                unique_key = f"{tweet_id}_{screen_name}"
+                if unique_key in processed_keys:
+                    st.write(f"Твит {tweet_id} от {screen_name} уже обработан, пропускаем.")
+                    continue
+                processed_keys.add(unique_key)
+
                 created_at = tweet.get("created_at")
-                if not created_at or not isinstance(created_at, str):
-                    created_at = datetime.utcnow().isoformat()
+                try:
+                    # Проверка и преобразование created_at в ISO 8601
+                    created_at = pd.to_datetime(created_at, utc=True, errors="raise").isoformat()
+                except (ValueError, TypeError) as e:
+                    st.warning(f"Некорректный формат created_at для твита {tweet_id}: {created_at}. Пропускаем.")
+                    continue
+
                 result.append({
-                    "id_str": str(tweet.get("id", tweet.get("id_str", str(uuid4())))),
+                    "id_str": tweet_id,
                     "text": tweet.get("text", ""),
                     "created_at": created_at,
-                    "user": {"screen_name": tweet.get("user", {}).get("screen_name", username) or username},
+                    "user": {"screen_name": screen_name},
                     "public_metrics": {
                         "retweet_count": tweet.get("retweetCount", 0),
                         "reply_count": tweet.get("replyCount", 0),
@@ -2460,8 +2478,13 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     keyword_query = f"{project_name_query} OR {project_symbol_query}"
     keyword_tweets = fetch(keyword_query)
 
-    # Объединение с удалением дубликатов по id_str
-    all_tweets = {tweet["id_str"]: tweet for tweet in official_tweets + keyword_tweets}
+    # Объединение с удалением дубликатов по id_str и screen_name
+    all_tweets = {}
+    for tweet in official_tweets + keyword_tweets:
+        tweet_id = tweet["id_str"]
+        screen_name = tweet["user"]["screen_name"]
+        unique_key = f"{tweet_id}_{screen_name}"
+        all_tweets[unique_key] = tweet
     st.write(f"Объединено {len(all_tweets)} уникальных твитов.")
     return list(all_tweets.values())
 
