@@ -2739,30 +2739,57 @@ if st.button("Загрузить твиты"):
 
 ##################
 
-from pinecone import Pinecone
-import streamlit as st
+
 
 st.subheader("Очистка дубликатов в векторной базе")
 
+def normalize_url(url):
+    """Normalize URL by removing trailing slash."""
+    return url.rstrip("/")
+
 if st.button("Проверить и удалить дубликаты"):
     try:
+        # Initialize Pinecone client
 
+        # Normalize coinmarketcap_url
+        normalized_url = normalize_url(coinmarketcap_url)
 
-        # Fetch all documents for the project
-        all_docs = vector_store.similarity_search("", k=1000, filter={"coinmarketcap_url": coinmarketcap_url})
+        # Fetch all documents with pagination
+        all_docs = []
+        query_filter = {
+            "$or": [
+                {"coinmarketcap_url": normalized_url},
+                {"coinmarketcap_url": normalized_url + "/"}
+            ]
+        }
+        top_k = 1000
+        last_id = None
+        while True:
+            query_result = index.query(
+                vector=[0] * index.describe_index_stats()['dimension'],  # Adjust dimension
+                top_k=top_k,
+                filter=query_filter,
+                include_metadata=True
+            )
+            matches = query_result["matches"]
+            all_docs.extend([
+                Document(
+                    page_content="",  # Content not needed for cleaning
+                    metadata={**match["metadata"], "doc_id": match["id"]}
+                ) for match in matches
+            ])
+            if len(matches) < top_k:
+                break
+            last_id = matches[-1]["id"]
+            query_filter["$and"] = [{"doc_id": {"$gt": last_id}}]
+
         tweet_id_to_docs = {}
-        doc_id_to_metadata = {}
-
         for doc in all_docs:
             tweet_id = doc.metadata.get("tweet_id")
-            # Use Pinecone query to get the document ID
-            # Pinecone stores IDs separately; we need to query with metadata filter
             if tweet_id:
                 if tweet_id not in tweet_id_to_docs:
                     tweet_id_to_docs[tweet_id] = []
                 tweet_id_to_docs[tweet_id].append(doc)
-                # Store metadata for logging
-                doc_id_to_metadata[id(doc)] = doc.metadata  # Use object ID as temporary key
 
         duplicates_found = False
         ids_to_delete = []
@@ -2781,30 +2808,11 @@ if st.button("Проверить и удалить дубликаты"):
                 if not valid_doc:
                     valid_doc = docs[0]  # Fallback to first doc
 
-                # Query Pinecone to get document IDs
                 for doc in docs:
                     if doc != valid_doc:
-                        # Use metadata filter to find exact document ID
-                        query_filter = {
-                            "tweet_id": doc.metadata["tweet_id"],
-                            "author_username": doc.metadata["author_username"],
-                            "coinmarketcap_url": doc.metadata["coinmarketcap_url"]
-                        }
-                        try:
-                            # Query Pinecone index for matching documents
-                            query_result = index.query(
-                                vector=[0] * index.describe_index_stats()['dimension'],  # Dummy vector
-                                top_k=1000,
-                                filter=query_filter,
-                                include_metadata=True
-                            )
-                            for match in query_result["matches"]:
-                                doc_id = match["id"]
-                                if doc_id not in ids_to_delete:
-                                    ids_to_delete.append(doc_id)
-                                    st.write(f"Будет удален дубликат: tweet_id={tweet_id}, author_username={doc.metadata['author_username']}, doc_id={doc_id}")
-                        except Exception as e:
-                            st.error(f"Ошибка при запросе ID для tweet_id {tweet_id}: {str(e)}")
+                        doc_id = doc.metadata.get("doc_id")
+                        ids_to_delete.append(doc_id)
+                        st.write(f"Будет удален дубликат: tweet_id={tweet_id}, author_username={doc.metadata['author_username']}, doc_id={doc_id}")
 
         if ids_to_delete:
             try:
@@ -2813,11 +2821,17 @@ if st.button("Проверить и удалить дубликаты"):
             except Exception as e:
                 st.error(f"Ошибка при удалении дубликатов: {str(e)}")
         elif duplicates_found:
-            st.warning("Обнаружены дубликаты, но не удалось найти ID для удаления. Проверьте конфигурацию Pinecone.")
+            st.warning("Обнаружены дубликаты, но не удалось определить ID для удаления.")
+            for tweet_id, docs in tweet_id_to_docs.items():
+                if len(docs) > 1:
+                    for doc in docs:
+                        st.write(f"Дубликат: tweet_id={tweet_id}, author_username={doc.metadata['author_username']}, doc_id={doc.metadata.get('doc_id', 'N/A')}")
         else:
             st.info("Дубликаты в векторной базе не найдены.")
     except Exception as e:
         st.error(f"Ошибка при проверке векторной базы: {str(e)}")
+
+
 
 
 # Analytics section
