@@ -2639,21 +2639,30 @@ if st.button("Показать аналитику"):
     else:
         # Fetch followers and following count
         try:
-            first_tweet = st.session_state["tweets"][0]
-            twitter_url = first_tweet["user"]["screen_name"] if first_tweet and "user" in first_tweet else None
+            first_tweet = next((t for t in st.session_state["tweets"] if "user" in t and "screen_name" in t["user"]),
+                               None)
+            twitter_url = first_tweet["user"]["screen_name"] if first_tweet else None
             if twitter_url:
+                st.write(f"Attempting to fetch data for username: {twitter_url}")
                 url = f"https://api.twitterapi.io/twitter/user/lookup?usernames={twitter_url}"
                 headers = {"x-api-key": twitter_api_key}
                 response = requests.get(url, headers=headers, timeout=10)
                 response.raise_for_status()
                 data = response.json()
-                user_data = data.get("data", [{}])[0]
-                followers_count = user_data.get("public_metrics", {}).get("followers_count", 0)
-                following_count = user_data.get("public_metrics", {}).get("following_count", 0)
-                st.write(f"Followers: {followers_count}")
-                st.write(f"Following: {following_count}")
+                st.write("API Response:", data)  # Debug: Log the full response
+                user_data = data.get("data", [])
+                if user_data:
+                    user_data = user_data[0]
+                    followers_count = user_data.get("public_metrics", {}).get("followers_count", 0)
+                    following_count = user_data.get("public_metrics", {}).get("following_count", 0)
+                    st.write(f"Followers: {followers_count}")
+                    st.write(f"Following: {following_count}")
+                else:
+                    st.error("No user data found in API response.")
             else:
                 st.error("Не удалось определить username из твитов.")
+        except requests.RequestException as e:
+            st.error(f"Ошибка при запросе к Twitter API: {e}")
         except Exception as e:
             st.error(f"Ошибка при получении данных о пользователе: {e}")
 
@@ -2662,15 +2671,19 @@ if st.button("Показать аналитику"):
         if "user.screen_name" not in tweets_df.columns:
             tweets_df = tweets_df.join(pd.json_normalize(tweets_df["user"]).add_prefix("user."))
 
-        tweets_df["created_at"] = pd.to_datetime(tweets_df["created_at"], errors="coerce")
+        # Debug: Check created_at values
+        st.write("Sample created_at values:", tweets_df["created_at"].head().tolist())
+
+        tweets_df["created_at"] = pd.to_datetime(tweets_df["created_at"], errors="coerce", utc=True)
         tweets_df = tweets_df.dropna(subset=["created_at"])  # Remove rows with invalid dates
         if tweets_df.empty:
-            st.error("Нет данных с валидными датами для анализа.")
+            st.error("Нет данных с валидными датами для анализа. Проверьте формат created_at в твитах.")
         else:
             tweets_df["date"] = tweets_df["created_at"].dt.date
 
             # Official tweets
-            official_tweets_df = tweets_df[tweets_df["user.screen_name"].str.lower() == twitter_url.lower()]
+            official_tweets_df = tweets_df[
+                tweets_df["user.screen_name"].str.lower() == twitter_url.lower()] if twitter_url else pd.DataFrame()
             if not official_tweets_df.empty:
                 official_metrics = official_tweets_df.groupby("date").agg({
                     "view_count": "sum",
@@ -2679,9 +2692,11 @@ if st.button("Показать аналитику"):
                 }).reset_index()
             else:
                 official_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
+                st.warning("Нет твитов от официального аккаунта для анализа.")
 
             # Other tweets
-            other_tweets_df = tweets_df[tweets_df["user.screen_name"].str.lower() != twitter_url.lower()]
+            other_tweets_df = tweets_df[
+                tweets_df["user.screen_name"].str.lower() != twitter_url.lower()] if twitter_url else tweets_df
             if not other_tweets_df.empty:
                 other_metrics = other_tweets_df.groupby("date").agg({
                     "view_count": "sum",
@@ -2690,6 +2705,7 @@ if st.button("Показать аналитику"):
                 }).reset_index()
             else:
                 other_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
+                st.warning("Нет других твитов для анализа.")
 
             # Plotting
             fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
