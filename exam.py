@@ -2402,7 +2402,17 @@ def parse_coinmarketcap_project(url):
 
 # Function to search tweets
 
-def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime, limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
+from datetime import datetime, timedelta, timezone
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+import streamlit as st
+from uuid import uuid4
+import pandas as pd
+
+
+def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
+                           limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     headers = {"x-api-key": twitter_api_key}
     since_str = start_date.strftime("%Y-%m-%d")
@@ -2416,12 +2426,19 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
             params = {
                 "query": f"{query_string} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
                 "queryType": "Latest",
-                "limit": limit
+                "limit": limit,
+                # Add user.fields to request username explicitly (if supported by twitterapi.io)
+                "user.fields": "username",
+                "expansions": "author_id",
+                "tweet.fields": "created_at,public_metrics"
             }
             st.write(f"Поиск по запросу: {params['query']}")
             response = session.get(url, headers=headers, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
+
+            # Debug: Log the full API response
+            st.write(f"Raw API response: {data}")
 
             tweets = []
             for key in ["tweets", "data", "results"]:
@@ -2433,10 +2450,15 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
             processed_keys = set()
             for tweet in tweets:
                 tweet_id = str(tweet.get("id", tweet.get("id_str", str(uuid4()))))
-                screen_name = tweet.get("user", {}).get("screen_name", None)
+
+                # Try to get username (Twitter API v2) or screen_name (v1.1)
+                user = tweet.get("user", {})
+                screen_name = user.get("username", user.get("screen_name", None))
                 if not screen_name:
-                    st.warning(f"Твит {tweet_id} не содержит screen_name, пропускаем.")
+                    st.warning(f"Твит {tweet_id} не содержит username или screen_name, пропускаем.")
+                    st.write(f"User object for tweet {tweet_id}: {user}")
                     continue
+
                 unique_key = f"{tweet_id}_{screen_name}"
                 if unique_key in processed_keys:
                     st.write(f"Твит {tweet_id} от {screen_name} уже обработан, пропускаем.")
@@ -2445,27 +2467,34 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
 
                 created_at = tweet.get("created_at")
                 try:
-                    # Проверка и преобразование created_at в ISO 8601
                     created_at = pd.to_datetime(created_at, utc=True, errors="raise").isoformat()
                 except (ValueError, TypeError) as e:
                     st.warning(f"Некорректный формат created_at для твита {tweet_id}: {created_at}. Пропускаем.")
                     continue
 
+                # Extract public metrics
+                public_metrics = tweet.get("public_metrics", {})
+                retweet_count = public_metrics.get("retweet_count", tweet.get("retweetCount", 0))
+                reply_count = public_metrics.get("reply_count", tweet.get("replyCount", 0))
+                view_count = public_metrics.get("view_count", tweet.get("viewCount", 0))
+
                 result.append({
                     "id_str": tweet_id,
                     "text": tweet.get("text", ""),
                     "created_at": created_at,
-                    "user": {"screen_name": screen_name},
+                    "user": {"screen_name": screen_name},  # Store as screen_name for backward compatibility
                     "public_metrics": {
-                        "retweet_count": tweet.get("retweetCount", 0),
-                        "reply_count": tweet.get("replyCount", 0),
-                        "view_count": tweet.get("viewCount", 0)
+                        "retweet_count": retweet_count,
+                        "reply_count": reply_count,
+                        "view_count": view_count
                     }
                 })
-            st.write(f"Fetched {len(result)} tweets with sample created_at: {result[0]['created_at'] if result else 'None'}")
+            st.write(
+                f"Fetched {len(result)} tweets with sample created_at: {result[0]['created_at'] if result else 'None'}")
             return result
         except Exception as e:
             st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
+            st.write(f"Request params: {params}")
             return []
 
     # Запрос от официального аккаунта
