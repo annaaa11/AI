@@ -2614,6 +2614,19 @@ if st.button("Загрузить твиты"):
             if not official_username or official_username == "":
                 st.error("Не удалось извлечь валидный username из Twitter URL.")
                 st.stop()
+
+            # Validate Twitter username
+            try:
+                url = f"https://api.twitterapi.io/twitter/user/lookup?usernames={official_username}"
+                headers = {"x-api-key": twitter_api_key}
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                if data.get("status") == "error" and data.get("msg") == "user not found":
+                    st.warning(f"Пользователь {official_username} не найден в Twitter API. Попробуйте проверить URL CoinMarketCap.")
+            except requests.RequestException as e:
+                st.warning(f"Ошибка при проверке {official_username} в Twitter API: {e}. Продолжаем с текущим username.")
+
             st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
 
             # Clear session state
@@ -2629,13 +2642,23 @@ if st.button("Загрузить твиты"):
                     ]
                 })
                 st.info("Существующие данные для этого проекта удалены из векторной базы.")
+                # Verify deletion
+                verify_docs = vector_store.similarity_search("", k=1000, filter={
+                    "$or": [
+                        {"coinmarketcap_url": normalized_coinmarketcap_url},
+                        {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
+                    ]
+                })
+                if verify_docs:
+                    st.warning(f"Внимание: найдено {len(verify_docs)} документов после очистки.")
+                    for doc in verify_docs:
+                        st.write(f"Остаток: tweet_id={doc.metadata['tweet_id']}, doc_id={doc.metadata.get('doc_id', 'N/A')}")
             except Exception as e:
                 st.error(f"Ошибка при очистке векторной базы: {str(e)}")
                 st.stop()
 
             # Clear JSON entries for this project
             try:
-                new_id_data = {}
                 filtered_id_data = {
                     k: v for k, v in id_data.items()
                     if not k.startswith(f"twitter_{official_username}_")
@@ -2658,6 +2681,7 @@ if st.button("Загрузить твиты"):
             if tweets:
                 uploaded = 0
                 skipped = 0
+                new_id_data = {}
                 existing_ids = set()
 
                 for tweet in tweets:
@@ -2672,7 +2696,7 @@ if st.button("Загрузить твиты"):
                         skipped += 1
                         continue
                     if tweet_id in existing_ids:
-                        st.write(f"⏩ Пропущено (дубликат в JSON): tweet_id={tweet_id}")
+                        st.write(f"⏩ Пропущено (дубликат в текущей сессии): tweet_id={tweet_id}")
                         skipped += 1
                         continue
                     existing_ids.add(tweet_id)
@@ -2879,8 +2903,6 @@ if st.button("Удалить конкретный документ"):
         except Exception as e:
             st.error(f"Ошибка при удалении документа {doc_id_to_delete}: {str(e)}")
 
-
-# Analytics section
 st.subheader("Аналитика твитов")
 
 try:
@@ -2923,12 +2945,15 @@ try:
                     "author_username": metadata.get("author_username", "unknown"),
                     "author_type": metadata.get("author_type", "external"),
                     "project_name": metadata.get("project_name", ""),
-                    "project_symbol": metadata.get("project_symbol", "")
+                    "project_symbol": metadata.get("project_symbol", ""),
+                    "tweet_id": metadata.get("tweet_id", ""),
+                    "doc_id": metadata.get("doc_id", "")
                 })
             tweets_df = pd.DataFrame(data)
 
-            # Debug: Check created_at values
-            st.write("Sample created_at values:", tweets_df["created_at"].head().tolist())
+            # Debug: Check tweet data
+            st.write("Все твиты в базе:",
+                     tweets_df[["tweet_id", "author_username", "author_type", "created_at"]].head().to_dict())
 
             # Convert created_at to datetime
             tweets_df["created_at"] = pd.to_datetime(tweets_df["created_at"], errors="coerce", utc=True)
@@ -2977,6 +3002,8 @@ try:
                     except Exception as e:
                         st.warning(
                             f"Ошибка при получении данных о пользователе: {e}. Аналитика продолжится без данных о подписчиках.")
+                else:
+                    st.warning("Официальный аккаунт не найден в данных. Аналитика продолжится по author_type.")
 
                 # Aggregate metrics
                 official_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
@@ -2988,6 +3015,7 @@ try:
                         "retweet_count": "sum",
                         "reply_count": "sum"
                     }).reset_index()
+                    st.write(f"Найдено {len(official_tweets_df)} официальных твитов.")
                 else:
                     st.warning("Нет твитов от официального аккаунта для анализа.")
 
@@ -2997,6 +3025,7 @@ try:
                         "retweet_count": "sum",
                         "reply_count": "sum"
                     }).reset_index()
+                    st.write(f"Найдено {len(other_tweets_df)} других твитов.")
                 else:
                     st.warning("Нет других твитов для анализа.")
 
@@ -3027,9 +3056,11 @@ try:
                 plt.xticks(rotation=45)
                 st.pyplot(fig)
 
-                # Display raw data for debugging
-                st.write("Официальные твиты:", official_tweets_df[["text", "created_at", "author_username"]].head())
-                st.write("Остальные твиты:", other_tweets_df[["text", "created_at", "author_username"]].head())
+                # Display raw data
+                st.write("Официальные твиты:",
+                         official_tweets_df[["tweet_id", "text", "created_at", "author_username", "author_type"]])
+                st.write("Остальные твиты:",
+                         other_tweets_df[["tweet_id", "text", "created_at", "author_username", "author_type"]])
 except Exception as e:
     st.error(f"Ошибка при обработке аналитики: {str(e)}")
 
