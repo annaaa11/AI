@@ -2150,6 +2150,7 @@ if st.button("Загрузить твиты"):
         st.error("Пожалуйста, введите URL CoinMarketCap.")
 
 # Analytics section
+# Analytics section
 st.subheader("Аналитика твитов")
 if st.button("Показать аналитику"):
     if not st.session_state.get("tweets"):
@@ -2174,11 +2175,15 @@ if st.button("Показать аналитику"):
 
         # Prepare data for plotting
         tweets_df = pd.DataFrame(st.session_state["tweets"])
-        tweets_df["created_at"] = pd.to_datetime(tweets_df["created_at"])
+        # Ensure the 'user.screen_name' column exists
+        if "user.screen_name" not in tweets_df.columns:
+            tweets_df = tweets_df.join(pd.json_normalize(tweets_df["user"]).add_prefix("user."))
+
+        tweets_df["created_at"] = pd.to_datetime(tweets_df["created_at"], errors="coerce")
         tweets_df["date"] = tweets_df["created_at"].dt.date
 
         # Official tweets
-        official_tweets_df = tweets_df[tweets_df["user"]["screen_name"].str.lower() == twitter_url.lower()]
+        official_tweets_df = tweets_df[tweets_df["user.screen_name"].str.lower() == twitter_url.lower()]
         official_metrics = official_tweets_df.groupby("date").agg({
             "view_count": "sum",
             "retweet_count": "sum",
@@ -2186,7 +2191,7 @@ if st.button("Показать аналитику"):
         }).reset_index()
 
         # Other tweets
-        other_tweets_df = tweets_df[tweets_df["user"]["screen_name"].str.lower() != twitter_url.lower()]
+        other_tweets_df = tweets_df[tweets_df["user.screen_name"].str.lower() != twitter_url.lower()]
         other_metrics = other_tweets_df.groupby("date").agg({
             "view_count": "sum",
             "retweet_count": "sum",
@@ -2217,7 +2222,6 @@ if st.button("Показать аналитику"):
 
         plt.xticks(rotation=45)
         st.pyplot(fig)
-
 # Chat with search
 st.subheader("Чат с поиском по векторной базе")
 
