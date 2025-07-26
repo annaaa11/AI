@@ -1777,7 +1777,6 @@ import pinecone
 #
 #     with st.chat_message(role):
 #         st.markdown(message.content)
-
 import os
 import json
 import dotenv
@@ -1790,6 +1789,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import nest_asyncio
 from bs4 import BeautifulSoup
+import matplotlib.pyplot as plt
+import pandas as pd
 
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.documents import Document
@@ -1869,6 +1870,7 @@ if os.path.exists(json_path):
 else:
     id_data = {}
 
+
 # Function to parse CoinMarketCap project page
 def parse_coinmarketcap_project(url):
     headers = {
@@ -1916,8 +1918,10 @@ def parse_coinmarketcap_project(url):
         "url": url
     }
 
+
 # Function to search tweets
-def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime, limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
+def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
+                           limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     headers = {"x-api-key": twitter_api_key}
     since_str = start_date.strftime("%Y-%m-%d")
@@ -1977,6 +1981,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     st.write(f"Объединено {len(all_tweets)} уникальных твитов.")
     return list(all_tweets.values())
 
+
 # Function to search documents
 def doc_ser(user_text: str):
     """
@@ -1994,6 +1999,7 @@ def doc_ser(user_text: str):
     except Exception as e:
         st.error(f"Error during vector store search: {str(e)}")
         return []
+
 
 # LLM and agent
 try:
@@ -2039,6 +2045,9 @@ limit = st.number_input("Количество твитов:", min_value=1, max_v
 min_retweets = st.number_input("Минимальное количество ретвитов:", min_value=0, value=0)
 min_replies = st.number_input("Минимальное количество ответов:", min_value=0, value=0)
 
+if "tweets" not in st.session_state:
+    st.session_state["tweets"] = []
+
 if st.button("Загрузить твиты"):
     if coinmarketcap_url:
         project_info = parse_coinmarketcap_project(coinmarketcap_url)
@@ -2052,7 +2061,8 @@ if st.button("Загрузить твиты"):
             if not official_username:
                 st.error("Не удалось извлечь username из Twitter URL.")
                 st.stop()
-            st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
+            st.info(
+                f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
 
             # Очистка существующих данных для проекта
             try:
@@ -2062,7 +2072,9 @@ if st.button("Загрузить твиты"):
                 st.error(f"Ошибка при очистке базы данных: {str(e)}")
 
             # Поиск твитов
-            tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date, limit, min_retweets, min_replies)
+            tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date,
+                                            limit, min_retweets, min_replies)
+            st.session_state["tweets"] = tweets  # Сохраняем твиты в сессии
 
             if tweets:
                 docs = []
@@ -2089,7 +2101,8 @@ if st.button("Загрузить твиты"):
                     reply_count = public_metrics.get("reply_count", tweet.get("reply_count", 0))
                     view_count = public_metrics.get("view_count", tweet.get("view_count", 0))
 
-                    st.write(f"Tweet ID: {tweet_id}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
+                    st.write(
+                        f"Tweet ID: {tweet_id}, Retweets: {retweet_count}, Replies: {reply_count}, Views: {view_count}")
 
                     doc = Document(
                         page_content=text,
@@ -2136,6 +2149,75 @@ if st.button("Загрузить твиты"):
     else:
         st.error("Пожалуйста, введите URL CoinMarketCap.")
 
+# Analytics section
+st.subheader("Аналитика твитов")
+if st.button("Показать аналитику"):
+    if not st.session_state.get("tweets"):
+        st.error("Сначала загрузите твиты, нажав 'Загрузить твиты'.")
+    else:
+        # Fetch followers and following count
+        twitter_url = st.session_state["tweets"][0]["user"]["screen_name"] if st.session_state["tweets"] else None
+        if twitter_url:
+            try:
+                url = f"https://api.twitterapi.io/twitter/user/lookup?usernames={twitter_url}"
+                headers = {"x-api-key": twitter_api_key}
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                user_data = data.get("data", [{}])[0]
+                followers_count = user_data.get("public_metrics", {}).get("followers_count", 0)
+                following_count = user_data.get("public_metrics", {}).get("following_count", 0)
+                st.write(f"Followers: {followers_count}")
+                st.write(f"Following: {following_count}")
+            except Exception as e:
+                st.error(f"Ошибка при получении данных о пользователе: {e}")
+
+        # Prepare data for plotting
+        tweets_df = pd.DataFrame(st.session_state["tweets"])
+        tweets_df["created_at"] = pd.to_datetime(tweets_df["created_at"])
+        tweets_df["date"] = tweets_df["created_at"].dt.date
+
+        # Official tweets
+        official_tweets_df = tweets_df[tweets_df["user"]["screen_name"].str.lower() == twitter_url.lower()]
+        official_metrics = official_tweets_df.groupby("date").agg({
+            "view_count": "sum",
+            "retweet_count": "sum",
+            "reply_count": "sum"
+        }).reset_index()
+
+        # Other tweets
+        other_tweets_df = tweets_df[tweets_df["user"]["screen_name"].str.lower() != twitter_url.lower()]
+        other_metrics = other_tweets_df.groupby("date").agg({
+            "view_count": "sum",
+            "retweet_count": "sum",
+            "reply_count": "sum"
+        }).reset_index()
+
+        # Plotting
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
+
+        # Official tweets plot
+        ax1.plot(official_metrics["date"], official_metrics["view_count"], label="Views", marker="o")
+        ax1.plot(official_metrics["date"], official_metrics["retweet_count"], label="Retweets", marker="o")
+        ax1.plot(official_metrics["date"], official_metrics["reply_count"], label="Replies", marker="o")
+        ax1.set_title("Аналитика твитов официального аккаунта")
+        ax1.set_ylabel("Количество")
+        ax1.legend()
+        ax1.grid(True)
+
+        # Other tweets plot
+        ax2.plot(other_metrics["date"], other_metrics["view_count"], label="Views", marker="o")
+        ax2.plot(other_metrics["date"], other_metrics["retweet_count"], label="Retweets", marker="o")
+        ax2.plot(other_metrics["date"], other_metrics["reply_count"], label="Replies", marker="o")
+        ax2.set_title("Аналитика остальных твитов")
+        ax2.set_xlabel("Дата")
+        ax2.set_ylabel("Количество")
+        ax2.legend()
+        ax2.grid(True)
+
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
+
 # Chat with search
 st.subheader("Чат с поиском по векторной базе")
 
@@ -2171,8 +2253,3 @@ for message in st.session_state['data']['messages']:
 
     with st.chat_message(role):
         st.markdown(content)
-
-
-
-
-
