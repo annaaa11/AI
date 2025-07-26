@@ -3057,6 +3057,7 @@ try:
                 st.pyplot(fig)
 
                 # Display raw data
+
                 st.write("Официальные твиты:",
                          official_tweets_df[["tweet_id", "text", "created_at", "author_username", "author_type"]])
                 st.write("Остальные твиты:",
