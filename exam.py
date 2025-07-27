@@ -3015,31 +3015,95 @@ try:
                 else:
                     st.warning("Нет других твитов для анализа.")
 
+                # # Plotting
+                # fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
+                #
+                # # Official tweets plot
+                # if not official_metrics.empty:
+                #     ax1.plot(official_metrics["date"], official_metrics["view_count"], label="Просмотры", marker="o")
+                #     ax1.plot(official_metrics["date"], official_metrics["retweet_count"], label="Ретвиты", marker="o")
+                #     ax1.plot(official_metrics["date"], official_metrics["reply_count"], label="Ответы", marker="o")
+                # ax1.set_title("Аналитика твитов официального аккаунта")
+                # ax1.set_ylabel("Количество")
+                # ax1.legend()
+                # ax1.grid(True)
+                #
+                # # Other tweets plot
+                # if not other_metrics.empty:
+                #     ax2.plot(other_metrics["date"], other_metrics["view_count"], label="Просмотры", marker="o")
+                #     ax2.plot(other_metrics["date"], other_metrics["retweet_count"], label="Ретвиты", marker="o")
+                #     ax2.plot(other_metrics["date"], other_metrics["reply_count"], label="Ответы", marker="o")
+                # ax2.set_title("Аналитика остальных твитов")
+                # ax2.set_xlabel("Дата")
+                # ax2.set_ylabel("Количество")
+                # ax2.legend()
+                # ax2.grid(True)
+                #
+                # plt.xticks(rotation=45)
+                # plt.tight_layout()
+                # st.pyplot(fig)
+
                 # Plotting
-                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12), sharex=True)
+                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
 
                 # Official tweets plot
                 if not official_metrics.empty:
-                    ax1.plot(official_metrics["date"], official_metrics["view_count"], label="Просмотры", marker="o")
-                    ax1.plot(official_metrics["date"], official_metrics["retweet_count"], label="Ретвиты", marker="o")
-                    ax1.plot(official_metrics["date"], official_metrics["reply_count"], label="Ответы", marker="o")
+                    # Left axis for view_count
+                    ax1.plot(official_metrics["date"], official_metrics["view_count"], label="Просмотры", marker="o",
+                             color="blue")
+                    ax1.set_ylabel("Просмотры", color="blue")
+                    ax1.tick_params(axis="y", labelcolor="blue")
+
+                    # Right axis for retweet_count and reply_count
+                    ax1_twin = ax1.twinx()
+                    ax1_twin.plot(official_metrics["date"], official_metrics["retweet_count"], label="Ретвиты",
+                                  marker="o", color="green")
+                    ax1_twin.plot(official_metrics["date"], official_metrics["reply_count"], label="Ответы", marker="o",
+                                  color="red")
+                    ax1_twin.set_ylabel("Ретвиты / Ответы", color="black")
+                    ax1_twin.tick_params(axis="y", labelcolor="black")
+
+                    # Combine legends
+                    lines1, labels1 = ax1.get_legend_handles_labels()
+                    lines2, labels2 = ax1_twin.get_legend_handles_labels()
+                    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+                else:
+                    ax1.text(0.5, 0.5, "Нет данных для официальных твитов", horizontalalignment="center",
+                             verticalalignment="center")
                 ax1.set_title("Аналитика твитов официального аккаунта")
-                ax1.set_ylabel("Количество")
-                ax1.legend()
+                ax1.set_xlabel("Дата")
                 ax1.grid(True)
+                ax1.tick_params(axis="x", rotation=45)
 
                 # Other tweets plot
                 if not other_metrics.empty:
-                    ax2.plot(other_metrics["date"], other_metrics["view_count"], label="Просмотры", marker="o")
-                    ax2.plot(other_metrics["date"], other_metrics["retweet_count"], label="Ретвиты", marker="o")
-                    ax2.plot(other_metrics["date"], other_metrics["reply_count"], label="Ответы", marker="o")
+                    # Left axis for view_count
+                    ax2.plot(other_metrics["date"], other_metrics["view_count"], label="Просмотры", marker="o",
+                             color="blue")
+                    ax2.set_ylabel("Просмотры", color="blue")
+                    ax2.tick_params(axis="y", labelcolor="blue")
+
+                    # Right axis for retweet_count and reply_count
+                    ax2_twin = ax2.twinx()
+                    ax2_twin.plot(other_metrics["date"], other_metrics["retweet_count"], label="Ретвиты", marker="o",
+                                  color="green")
+                    ax2_twin.plot(other_metrics["date"], other_metrics["reply_count"], label="Ответы", marker="o",
+                                  color="red")
+                    ax2_twin.set_ylabel("Ретвиты / Ответы", color="black")
+                    ax2_twin.tick_params(axis="y", labelcolor="black")
+
+                    # Combine legends
+                    lines1, labels1 = ax2.get_legend_handles_labels()
+                    lines2, labels2 = ax2_twin.get_legend_handles_labels()
+                    ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+                else:
+                    ax2.text(0.5, 0.5, "Нет данных для других твитов", horizontalalignment="center",
+                             verticalalignment="center")
                 ax2.set_title("Аналитика остальных твитов")
                 ax2.set_xlabel("Дата")
-                ax2.set_ylabel("Количество")
-                ax2.legend()
                 ax2.grid(True)
+                ax2.tick_params(axis="x", rotation=45)
 
-                plt.xticks(rotation=45)
                 plt.tight_layout()
                 st.pyplot(fig)
 
