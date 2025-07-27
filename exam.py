@@ -2598,6 +2598,21 @@ def already_exists(tweet_id: str) -> bool:
         st.error(f"Ошибка при проверке tweet_id {tweet_id} в Pinecone: {str(e)}")
         return False
 
+
+# ... (предыдущий код остается без изменений до секции загрузки твитов)
+
+# Функция для проверки существующих пространств имен
+def check_namespaces(index):
+    try:
+        stats = index.describe_index_stats()
+        namespaces = stats.get("namespaces", {})
+        st.write(f"Доступные пространства имен: {list(namespaces.keys())}")
+        return namespaces
+    except Exception as e:
+        st.error(f"Ошибка при получении статистики индекса: {str(e)}")
+        return {}
+
+
 if st.button("Загрузить твиты"):
     if coinmarketcap_url:
         # Normalize coinmarketcap_url
@@ -2613,35 +2628,58 @@ if st.button("Загрузить твиты"):
             if not official_username or official_username == "":
                 st.error("Не удалось извлечь валидный username из Twitter URL.")
                 st.stop()
-            st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
+            st.info(
+                f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
 
             # Clear session state
             st.session_state["tweets"] = []
             st.write("Очищена сессия st.session_state['tweets'].")
 
+            # Check namespaces before deletion
+            namespaces = check_namespaces(index)
+            namespace = ""  # Используем дефолтное пространство имен, если не указано иное
+
             # Clear existing data in vector database
             try:
-                vector_store.delete(filter={
-                    "$or": [
-                        {"coinmarketcap_url": normalized_coinmarketcap_url},
-                        {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
-                    ]
-                })
-                st.info("Существующие данные для этого проекта удалены из векторной базы.")
+                if namespace in namespaces and namespaces[namespace].get("vector_count", 0) > 0:
+                    vector_store.delete(
+                        filter={
+                            "$or": [
+                                {"coinmarketcap_url": normalized_coinmarketcap_url},
+                                {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
+                            ]
+                        },
+                        namespace=namespace
+                    )
+                    st.info(f"Существующие данные для проекта удалены из векторной базы (namespace: {namespace}).")
+                else:
+                    st.info(f"Пространство имен '{namespace}' пусто или не существует, пропускаем удаление.")
+
                 # Verify deletion
-                verify_docs = vector_store.similarity_search("", k=1000, filter={
-                    "$or": [
-                        {"coinmarketcap_url": normalized_coinmarketcap_url},
-                        {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
-                    ]
-                })
+                verify_docs = vector_store.similarity_search(
+                    "", k=1000,
+                    filter={
+                        "$or": [
+                            {"coinmarketcap_url": normalized_coinmarketcap_url},
+                            {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
+                        ]
+                    },
+                    namespace=namespace
+                )
                 if verify_docs:
-                    st.warning(f"Внимание: найдено {len(verify_docs)} документов после очистки.")
+                    st.warning(
+                        f"Внимание: найдено {len(verify_docs)} документов после очистки в namespace '{namespace}'.")
                     for doc in verify_docs:
-                        st.write(f"Остаток: tweet_id={doc.metadata['tweet_id']}, doc_id={doc.metadata.get('doc_id', 'N/A')}")
+                        st.write(
+                            f"Остаток: tweet_id={doc.metadata['tweet_id']}, doc_id={doc.metadata.get('doc_id', 'N/A')}")
+                else:
+                    st.info(f"Пространство имен '{namespace}' успешно очищено или было пустым.")
             except Exception as e:
                 st.error(f"Ошибка при очистке векторной базы: {str(e)}")
-                st.stop()
+                if "Namespace not found" in str(e):
+                    st.warning(f"Пространство имен '{namespace}' не найдено, продолжаем без удаления.")
+                else:
+                    st.stop()
 
             # Clear JSON entries for this project
             try:
@@ -2659,7 +2697,8 @@ if st.button("Загрузить твиты"):
                 st.stop()
 
             # Search tweets
-            tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date, limit, min_retweets, min_replies)
+            tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date,
+                                            limit, min_retweets, min_replies)
             st.session_state["tweets"] = tweets
             st.write(f"Найдено {len(tweets)} уникальных твитов.")
             st.write(f"Содержимое st.session_state['tweets']: {tweets}")
@@ -2712,7 +2751,8 @@ if st.button("Загрузить твиты"):
                     reply_count = public_metrics.get("reply_count", tweet.get("replyCount", 0))
                     view_count = public_metrics.get("view_count", tweet.get("viewCount", 0))
 
-                    st.write(f"Добавляется твит: ID={tweet_id}, Author={author_username}, Type={author_type}, Created At={created_at}")
+                    st.write(
+                        f"Добавляется твит: ID={tweet_id}, Author={author_username}, Type={author_type}, Created At={created_at}")
 
                     # Prepare document
                     doc = Document(
@@ -2735,7 +2775,7 @@ if st.button("Загрузить твиты"):
 
                     # Add to vector store
                     try:
-                        vector_store.add_documents([doc], ids=[tweet_id])
+                        vector_store.add_documents([doc], ids=[tweet_id], namespace=namespace)
                         st.success(f"✅ Загружено: tweet_id={tweet_id}")
                         uploaded += 1
                     except Exception as e:
@@ -2762,19 +2802,24 @@ if st.button("Загрузить твиты"):
 
                 # Verify vector database
                 try:
-                    verify_docs = vector_store.similarity_search("", k=1000, filter={
-                        "$or": [
-                            {"coinmarketcap_url": normalized_coinmarketcap_url},
-                            {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
-                        ]
-                    })
+                    verify_docs = vector_store.similarity_search(
+                        "", k=1000,
+                        filter={
+                            "$or": [
+                                {"coinmarketcap_url": normalized_coinmarketcap_url},
+                                {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
+                            ]
+                        },
+                        namespace=namespace
+                    )
                     tweet_ids_in_db = [doc.metadata["tweet_id"] for doc in verify_docs]
                     duplicate_ids = [tid for tid in set(tweet_ids_in_db) if tweet_ids_in_db.count(tid) > 1]
                     if duplicate_ids:
                         st.warning(f"Обнаружены дубликаты в векторной базе: {duplicate_ids}")
                         for doc in verify_docs:
                             if doc.metadata["tweet_id"] in duplicate_ids:
-                                st.write(f"Дубликат: tweet_id={doc.metadata['tweet_id']}, author_username={doc.metadata['author_username']}, doc_id={doc.metadata.get('doc_id', 'N/A')}")
+                                st.write(
+                                    f"Дубликат: tweet_id={doc.metadata['tweet_id']}, author_username={doc.metadata['author_username']}, doc_id={doc.metadata.get('doc_id', 'N/A')}")
                     else:
                         st.info("Дубликаты в векторной базе не найдены.")
                 except Exception as e:
@@ -2784,6 +2829,193 @@ if st.button("Загрузить твиты"):
                 st.write("Проверьте отладочную информацию выше для деталей.")
     else:
         st.error("Пожалуйста, введите URL CoinMarketCap.")
+
+# if st.button("Загрузить твиты"):
+#     if coinmarketcap_url:
+#         # Normalize coinmarketcap_url
+#         normalized_coinmarketcap_url = normalize_url(coinmarketcap_url)
+#         project_info = parse_coinmarketcap_project(coinmarketcap_url)
+#         if not project_info or project_info["twitter"] == "Not found":
+#             st.error("Не удалось найти Twitter URL на странице CoinMarketCap.")
+#         else:
+#             twitter_url = project_info["twitter"]
+#             project_name = project_info["name"]
+#             project_symbol = project_info["symbol"]
+#             official_username = urlparse(twitter_url).path.strip("/").split("/")[-1]
+#             if not official_username or official_username == "":
+#                 st.error("Не удалось извлечь валидный username из Twitter URL.")
+#                 st.stop()
+#             st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
+#
+#             # Clear session state
+#             st.session_state["tweets"] = []
+#             st.write("Очищена сессия st.session_state['tweets'].")
+#
+#             # Clear existing data in vector database
+#             try:
+#                 vector_store.delete(filter={
+#                     "$or": [
+#                         {"coinmarketcap_url": normalized_coinmarketcap_url},
+#                         {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
+#                     ]
+#                 })
+#                 st.info("Существующие данные для этого проекта удалены из векторной базы.")
+#                 # Verify deletion
+#                 verify_docs = vector_store.similarity_search("", k=1000, filter={
+#                     "$or": [
+#                         {"coinmarketcap_url": normalized_coinmarketcap_url},
+#                         {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
+#                     ]
+#                 })
+#                 if verify_docs:
+#                     st.warning(f"Внимание: найдено {len(verify_docs)} документов после очистки.")
+#                     for doc in verify_docs:
+#                         st.write(f"Остаток: tweet_id={doc.metadata['tweet_id']}, doc_id={doc.metadata.get('doc_id', 'N/A')}")
+#             except Exception as e:
+#                 st.error(f"Ошибка при очистке векторной базы: {str(e)}")
+#                 st.stop()
+#
+#             # Clear JSON entries for this project
+#             try:
+#                 filtered_id_data = {
+#                     k: v for k, v in id_data.items()
+#                     if not k.startswith(f"twitter_{official_username}_")
+#                 }
+#                 with open(json_path, "w", encoding="utf-8") as jf:
+#                     json.dump(filtered_id_data, jf, ensure_ascii=False)
+#                 id_data.clear()
+#                 id_data.update(filtered_id_data)
+#                 st.info("JSON данные для этого проекта очищены.")
+#             except Exception as e:
+#                 st.error(f"Ошибка при очистке JSON: {str(e)}")
+#                 st.stop()
+#
+#             # Search tweets
+#             tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date, limit, min_retweets, min_replies)
+#             st.session_state["tweets"] = tweets
+#             st.write(f"Найдено {len(tweets)} уникальных твитов.")
+#             st.write(f"Содержимое st.session_state['tweets']: {tweets}")
+#
+#             if tweets:
+#                 uploaded = 0
+#                 skipped = 0
+#                 new_id_data = {}
+#                 existing_ids = set()
+#
+#                 for tweet in tweets:
+#                     text = tweet.get("text", "")
+#                     if not text:
+#                         st.warning(f"Твит {tweet.get('id_str', 'unknown')} пропущен: пустой текст.")
+#                         continue
+#
+#                     tweet_id = tweet.get("id_str", str(uuid4()))
+#                     if already_exists(tweet_id):
+#                         st.write(f"⏩ Пропущено (дубликат в Pinecone): tweet_id={tweet_id}")
+#                         skipped += 1
+#                         continue
+#                     if tweet_id in existing_ids:
+#                         st.write(f"⏩ Пропущено (дубликат в текущей сессии): tweet_id={tweet_id}")
+#                         skipped += 1
+#                         continue
+#                     existing_ids.add(tweet_id)
+#
+#                     author_username = tweet.get("user", {}).get("screen_name", None)
+#                     if not author_username:
+#                         st.warning(f"Твит {tweet_id} не содержит screen_name, пропускаем.")
+#                         st.write(f"Проблемный твит: {tweet}")
+#                         continue
+#
+#                     created_at = tweet.get("created_at")
+#                     if not created_at:
+#                         st.warning(f"Твит {tweet_id} не содержит created_at, пропускаем.")
+#                         st.write(f"Проблемный твит: {tweet}")
+#                         continue
+#                     try:
+#                         created_at = pd.to_datetime(created_at, utc=True, errors="raise").isoformat()
+#                     except (ValueError, TypeError) as e:
+#                         st.warning(f"Некорректный формат created_at для твита {tweet_id}: {created_at}. Пропускаем.")
+#                         continue
+#
+#                     is_official = author_username.lower() == official_username.lower()
+#                     author_type = "official" if is_official else "external"
+#
+#                     public_metrics = tweet.get("public_metrics", {})
+#                     retweet_count = public_metrics.get("retweet_count", tweet.get("retweetCount", 0))
+#                     reply_count = public_metrics.get("reply_count", tweet.get("replyCount", 0))
+#                     view_count = public_metrics.get("view_count", tweet.get("viewCount", 0))
+#
+#                     st.write(f"Добавляется твит: ID={tweet_id}, Author={author_username}, Type={author_type}, Created At={created_at}")
+#
+#                     # Prepare document
+#                     doc = Document(
+#                         page_content=text,
+#                         metadata={
+#                             "source": f"twitter_{official_username}",
+#                             "tweet_id": tweet_id,
+#                             "created_at": created_at,
+#                             "retweet_count": retweet_count,
+#                             "reply_count": reply_count,
+#                             "view_count": view_count,
+#                             "project_name": project_name,
+#                             "project_symbol": project_symbol,
+#                             "coinmarketcap_url": normalized_coinmarketcap_url,
+#                             "author_username": author_username,
+#                             "author_type": author_type,
+#                             "doc_id": tweet_id
+#                         }
+#                     )
+#
+#                     # Add to vector store
+#                     try:
+#                         vector_store.add_documents([doc], ids=[tweet_id])
+#                         st.success(f"✅ Загружено: tweet_id={tweet_id}")
+#                         uploaded += 1
+#                     except Exception as e:
+#                         st.error(f"Ошибка при добавлении твита {tweet_id}: {str(e)}")
+#                         continue
+#
+#                     # Update JSON
+#                     key_name = f"twitter_{official_username}_{tweet_id}_{author_username}"
+#                     new_id_data[key_name] = tweet_id
+#
+#                 # Save JSON
+#                 try:
+#                     existing_data = id_data if id_data else {}
+#                     existing_data.update(new_id_data)
+#                     with open(json_path, "w", encoding="utf-8") as jf:
+#                         json.dump(existing_data, jf, ensure_ascii=False)
+#                     st.write("JSON файл успешно обновлен.")
+#                 except Exception as e:
+#                     st.error(f"Failed to update JSON file: {str(e)}")
+#                     st.stop()
+#
+#                 st.write(f"📥 Загружено: {uploaded}")
+#                 st.write(f"🚫 Пропущено (дубликаты): {skipped}")
+#
+#                 # Verify vector database
+#                 try:
+#                     verify_docs = vector_store.similarity_search("", k=1000, filter={
+#                         "$or": [
+#                             {"coinmarketcap_url": normalized_coinmarketcap_url},
+#                             {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
+#                         ]
+#                     })
+#                     tweet_ids_in_db = [doc.metadata["tweet_id"] for doc in verify_docs]
+#                     duplicate_ids = [tid for tid in set(tweet_ids_in_db) if tweet_ids_in_db.count(tid) > 1]
+#                     if duplicate_ids:
+#                         st.warning(f"Обнаружены дубликаты в векторной базе: {duplicate_ids}")
+#                         for doc in verify_docs:
+#                             if doc.metadata["tweet_id"] in duplicate_ids:
+#                                 st.write(f"Дубликат: tweet_id={doc.metadata['tweet_id']}, author_username={doc.metadata['author_username']}, doc_id={doc.metadata.get('doc_id', 'N/A')}")
+#                     else:
+#                         st.info("Дубликаты в векторной базе не найдены.")
+#                 except Exception as e:
+#                     st.error(f"Ошибка при проверке векторной базы: {str(e)}")
+#             else:
+#                 st.error("Не удалось получить твиты. Проверьте параметры запроса или Twitter API ключ.")
+#                 st.write("Проверьте отладочную информацию выше для деталей.")
+#     else:
+#         st.error("Пожалуйста, введите URL CoinMarketCap.")
 
 ##################
 def normalize_url(url):
