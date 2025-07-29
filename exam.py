@@ -4388,20 +4388,35 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     continue
                 processed_keys.add(unique_key)
 
-                created_at = tweet.get("createdAt", tweet.get("created_at", None))
-                if not created_at:
-                    st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
+                created_at_raw = tweet.get("createdAt") or tweet.get("created_at")
+                if not created_at_raw:
+                    st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания (нет createdAt и created_at)")
                     continue
-                try:
-                    created_at = tweet.get("createdAt", tweet.get("created_at", None)) ##
-                    st.write(f"DEBUG: raw created_at for tweet {tweet_id}: {created_at} (type: {type(created_at)})")##
 
-                    parsed_date = pd.to_datetime(created_at, utc=True, errors="raise")
+                try:
+                    parsed_date = pd.to_datetime(created_at_raw, utc=True, errors="raise")
                     created_at = parsed_date.isoformat()
                     st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
                 except (ValueError, TypeError) as e:
-                    st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at}), ошибка: {str(e)}")
+                    st.write(
+                        f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at_raw}), ошибка: {str(e)}")
                     continue
+
+
+                # created_at = tweet.get("createdAt", None)
+                # if not created_at:
+                #     st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
+                #     continue
+                # try:
+                #     created_at = tweet.get("createdAt", tweet.get("created_at", None)) ##
+                #     st.write(f"DEBUG: raw created_at for tweet {tweet_id}: {created_at} (type: {type(created_at)})")##
+                #
+                #     parsed_date = pd.to_datetime(created_at, utc=True, errors="raise")
+                #     created_at = parsed_date.isoformat()
+                #     st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
+                # except (ValueError, TypeError) as e:
+                #     st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at}), ошибка: {str(e)}")
+                #     continue
 
                 public_metrics = tweet.get("public_metrics", {})
                 retweet_count = public_metrics.get("retweet_count", tweet.get("retweetCount", 0))
