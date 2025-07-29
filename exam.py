@@ -4389,6 +4389,9 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                 processed_keys.add(unique_key)
 
                 created_at_raw = tweet.get("createdAt") or tweet.get("created_at")
+                st.write(
+                    f"DEBUG: tweet.get('createdAt')={tweet.get('createdAt')}, tweet.get('created_at')={tweet.get('created_at')}")
+
                 if not created_at_raw:
                     st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания (нет createdAt и created_at)")
                     continue
