@@ -4505,25 +4505,6 @@ except Exception as e:
 # Streamlit interface
 st.title("Crypto Twitter Search")
 
-# Button to clear Pinecone and JSON
-if st.button("Очистить базу"):
-    namespace = ""
-    try:
-        vector_store.delete(delete_all=True, namespace=namespace)
-        st.success(f"Все записи в Pinecone (неймспейс '{namespace}') удалены.")
-    except Exception as e:
-        if "Namespace not found" not in str(e):
-            st.error(f"Ошибка при очистке Pinecone: {str(e)}")
-        else:
-            st.info(f"Неймспейс '{namespace}' уже пуст.")
-
-    try:
-        with open(json_path, "w", encoding="utf-8") as jf:
-            json.dump({}, jf, ensure_ascii=False)
-        id_data.clear()
-        st.success("JSON-файл очищен.")
-    except Exception as e:
-        st.error(f"Ошибка при очистке JSON: {str(e)}")
 
 # Add tweets
 st.subheader("Добавить твиты в базу")
