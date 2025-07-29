@@ -4393,6 +4393,9 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
                     continue
                 try:
+                    created_at = tweet.get("createdAt", tweet.get("created_at", None)) ##
+                    st.write(f"DEBUG: raw created_at for tweet {tweet_id}: {created_at} (type: {type(created_at)})")##
+
                     parsed_date = pd.to_datetime(created_at, utc=True, errors="raise")
                     created_at = parsed_date.isoformat()
                     st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
