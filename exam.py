@@ -4727,12 +4727,23 @@ try:
                     official_tweets_df = tweets_df[tweets_df["author_type"] == "official"]
                     other_tweets_df = tweets_df[tweets_df["author_type"] != "official"]
 
+
+
                     first_official_doc = next((doc for doc in docs if doc.metadata.get("author_type") == "official"), None)
                     if first_official_doc:
                         official_username = first_official_doc.metadata.get("author_username")
                         followers, following = get_user_info(official_username)
                         st.write(f"Подписчики: {followers}")
                         st.write(f"Подписки: {following}")
+                        # Calculate engagement ratio
+                        if not official_tweets_df.empty and followers > following:
+                            avg_engagement = (
+                                        official_tweets_df["retweet_count"] + official_tweets_df["reply_count"]).mean()
+                            engagement_ratio = avg_engagement / (followers - following)
+                            st.write(f"Коэффициент вовлеченности фолловеров: {engagement_ratio:.4f}")
+                        else:
+                            st.warning(
+                                "Коэффициент вовлеченности не может быть рассчитан: недостаточно данных или нулевая/отрицательная разница фолловеров и подписок.")
 
                     official_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
                     other_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
