@@ -4343,7 +4343,6 @@ def parse_coinmarketcap_project(url):
         "url": url
     }
 
-# Function to search tweets
 def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
                            limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
@@ -4380,17 +4379,25 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                 user = tweet.get("user", {})
                 screen_name = author.get("userName", user.get("username", user.get("screen_name", None)))
                 if not screen_name:
+                    st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует имя пользователя")
                     continue
 
                 unique_key = f"{tweet_id}_{screen_name}"
                 if unique_key in processed_keys:
+                    st.write(f"DEBUG: Пропущен твит {tweet_id}: дубликат по ключу {unique_key}")
                     continue
                 processed_keys.add(unique_key)
 
                 created_at = tweet.get("createdAt", tweet.get("created_at", None))
+                if not created_at:
+                    st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
+                    continue
                 try:
-                    created_at = pd.to_datetime(created_at, utc=True, errors="raise").isoformat()
-                except (ValueError, TypeError):
+                    parsed_date = pd.to_datetime(created_date, utc=True, errors="raise")
+                    created_at = parsed_date.isoformat()
+                    st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
+                except (ValueError, TypeError) as e:
+                    st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at}), ошибка: {str(e)}")
                     continue
 
                 public_metrics = tweet.get("public_metrics", {})
@@ -4416,11 +4423,12 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
 
     from_query = f"from:{username}"
     official_tweets = fetch(from_query)
-
+    st.write(f"DEBUG: Официальные твиты ({len(official_tweets)}): {[t['id_str'] for t in official_tweets]}")
     project_name_query = f'"{project_name}"'
     project_symbol_query = f"${project_symbol}"
     keyword_query = f"{project_name_query} OR {project_symbol_query}"
     keyword_tweets = fetch(keyword_query)
+    st.write(f"DEBUG: Твиты по ключевым словам ({len(keyword_tweets)}): {[t['id_str'] for t in keyword_tweets]}")
 
     all_tweets = {}
     for tweet in official_tweets + keyword_tweets:
@@ -4520,6 +4528,26 @@ if st.button("Очистить базу"):
 # Add tweets
 st.subheader("Добавить твиты в базу")
 
+# Button to clear Pinecone and JSON
+if st.button("Очистить базу"):
+    namespace = ""
+    try:
+        vector_store.delete(delete_all=True, namespace=namespace)
+        st.success(f"Все записи в Pinecone (неймспейс '{namespace}') удалены.")
+    except Exception as e:
+        if "Namespace not found" not in str(e):
+            st.error(f"Ошибка при очистке Pinecone: {str(e)}")
+        else:
+            st.info(f"Неймспейс '{namespace}' уже пуст.")
+
+    try:
+        with open(json_path, "w", encoding="utf-8") as jf:
+            json.dump({}, jf, ensure_ascii=False)
+        id_data.clear()
+        st.success("JSON-файл очищен.")
+    except Exception as e:
+        st.error(f"Ошибка при очистке JSON: {str(e)}")
+
 coinmarketcap_url = st.text_input(
     "Введите URL CoinMarketCap (например, https://coinmarketcap.com/currencies/legends-of-elumia/):")
 start_date = st.date_input("Выберите начальную дату:", value=datetime.now().date() - timedelta(days=7))
@@ -4527,8 +4555,10 @@ limit = st.number_input("Количество твитов:", min_value=1, max_v
 min_retweets = st.number_input("Минимальное количество ретвитов:", min_value=0, value=0)
 min_replies = st.number_input("Минимальное количество ответов:", min_value=0, value=0)
 
+
 def normalize_url(url: str) -> str:
     return url.strip().rstrip("/")
+
 
 if st.button("Загрузить твиты"):
     if coinmarketcap_url:
@@ -4613,6 +4643,7 @@ if st.button("Загрузить твиты"):
 
                     tweet_id = tweet.get("id_str", str(uuid4()))
                     st.write(f"DEBUG: Обработка твита с id: {tweet_id}, текст: {text[:30]}...")
+
                     if already_exists(tweet_id, namespace=namespace):
                         st.write(f"DEBUG: Твит {tweet_id} уже существует в Pinecone, пропущен")
                         skipped += 1
@@ -4632,11 +4663,7 @@ if st.button("Загрузить твиты"):
                     if not created_at:
                         st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
                         continue
-                    try:
-                        created_at = pd.to_datetime(created_at, utc=True, errors="raise").isoformat()
-                    except (ValueError, TypeError):
-                        st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания")
-                        continue
+                    st.write(f"DEBUG: Твит {tweet_id} ({author_username}): created_at={created_at}")
 
                     is_official = author_username.lower() == official_username.lower()
                     author_type = "official" if is_official else "external"
