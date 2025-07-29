@@ -4530,6 +4530,17 @@ if st.button("Загрузить твиты"):
             st.session_state["tweets"] = []
             namespace = ""
 
+            # Check Pinecone contents before deletion
+            try:
+                existing_docs = vector_store.similarity_search("", k=1000, namespace=namespace)
+                st.write(f"DEBUG: Найдено {len(existing_docs)} записей в неймспейсе '{namespace}' перед очисткой.")
+                existing_tweet_ids = [doc.metadata["tweet_id"] for doc in existing_docs if "tweet_id" in doc.metadata]
+                if existing_tweet_ids:
+                    st.write(f"DEBUG: Пример tweet_id в базе: {existing_tweet_ids[:5]}")
+            except Exception as e:
+                st.error(f"DEBUG: Ошибка при проверке содержимого Pinecone: {str(e)}")
+
+            # Delete records from Pinecone
             try:
                 vector_store.delete(
                     filter={
@@ -4540,11 +4551,15 @@ if st.button("Загрузить твиты"):
                     },
                     namespace=namespace
                 )
+                # Verify deletion
+                post_delete_docs = vector_store.similarity_search("", k=1000, namespace=namespace)
+                st.write(f"DEBUG: Найдено {len(post_delete_docs)} записей в неймспейсе '{namespace}' после очистки.")
             except Exception as e:
                 if "Namespace not found" not in str(e):
                     st.error(f"Ошибка при очистке векторной базы: {str(e)}")
                     st.stop()
 
+            # Clean JSON
             try:
                 filtered_id_data = {
                     k: v for k, v in id_data.items()
@@ -4554,6 +4569,7 @@ if st.button("Загрузить твиты"):
                     json.dump(filtered_id_data, jf, ensure_ascii=False)
                 id_data.clear()
                 id_data.update(filtered_id_data)
+                st.write(f"DEBUG: JSON очищен. Текущее количество записей: {len(id_data)}")
             except Exception as e:
                 st.error(f"Ошибка при очистке JSON: {str(e)}")
                 st.stop()
@@ -4572,24 +4588,34 @@ if st.button("Загрузить твиты"):
                 for tweet in tweets:
                     text = tweet.get("text", "")
                     if not text:
+                        st.write(f"DEBUG: Пропущен твит: отсутствует текст")
                         continue
 
                     tweet_id = tweet.get("id_str", str(uuid4()))
-                    if already_exists(tweet_id, namespace=namespace) or tweet_id in existing_ids:
+                    st.write(f"DEBUG: Обработка твита с id: {tweet_id}, текст: {text[:30]}...")
+                    if already_exists(tweet_id, namespace=namespace):
+                        st.write(f"DEBUG: Твит {tweet_id} уже существует в Pinecone, пропущен")
+                        skipped += 1
+                        continue
+                    if tweet_id in existing_ids:
+                        st.write(f"DEBUG: Твит {tweet_id} уже обработан в текущей сессии, пропущен")
                         skipped += 1
                         continue
                     existing_ids.add(tweet_id)
 
                     author_username = tweet.get("user", {}).get("screen_name", None)
                     if not author_username:
+                        st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует имя пользователя")
                         continue
 
                     created_at = tweet.get("created_at")
                     if not created_at:
+                        st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
                         continue
                     try:
                         created_at = pd.to_datetime(created_at, utc=True, errors="raise").isoformat()
                     except (ValueError, TypeError):
+                        st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания")
                         continue
 
                     is_official = author_username.lower() == official_username.lower()
@@ -4621,6 +4647,7 @@ if st.button("Загрузить твиты"):
                     try:
                         vector_store.add_documents([doc], ids=[tweet_id], namespace=namespace)
                         uploaded += 1
+                        st.write(f"DEBUG: Загружен твит: {tweet_id}")
                     except Exception as e:
                         st.error(f"Ошибка при добавлении твита {tweet_id}: {str(e)}")
                         continue
@@ -4633,6 +4660,7 @@ if st.button("Загрузить твиты"):
                     existing_data.update(new_id_data)
                     with open(json_path, "w", encoding="utf-8") as jf:
                         json.dump(existing_data, jf, ensure_ascii=False)
+                    st.write(f"DEBUG: JSON обновлен. Новых записей: {len(new_id_data)}")
                 except Exception as e:
                     st.error(f"Failed to update JSON file: {str(e)}")
                     st.stop()
