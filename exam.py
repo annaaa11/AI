@@ -12,7 +12,6 @@ from urllib3.util.retry import Retry
 import nest_asyncio
 from bs4 import BeautifulSoup
 import matplotlib.pyplot as plt
-import pandas as pd
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -20,6 +19,14 @@ from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone, ServerlessSpec
 from langgraph.prebuilt import create_react_agent
 import matplotlib.dates as mdates
+
+from datetime import datetime
+import requests
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+from uuid import uuid4
+import streamlit as st
+import pandas as pd
 
 # Apply nest_asyncio to handle async issues in Streamlit
 nest_asyncio.apply()
@@ -134,13 +141,7 @@ def parse_coinmarketcap_project(url):
         "url": url
     }
 
-from datetime import datetime
-import requests
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
-from uuid import uuid4
-import streamlit as st
-import pandas as pd
+
 
 def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
                           limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
