@@ -4343,9 +4343,8 @@ def parse_coinmarketcap_project(url):
         "twitter": twitter_link or "Not found",
         "url": url
     }
-
 def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
-                           limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
+                          limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     headers = {"x-api-key": twitter_api_key}
     since_str = start_date.strftime("%Y-%m-%d")
@@ -4354,8 +4353,11 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount("https://", HTTPAdapter(max_retries=retries))
 
-    def fetch(query_string):
+    def fetch(query_string, is_official=False):
         try:
+            # Add -from:{username} to keyword query to exclude official tweets
+            if not is_official:
+                query_string = f"{query_string} -from:{username}"
             params = {
                 "query": f"{query_string} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
                 "queryType": "Latest",
@@ -4390,42 +4392,24 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                 processed_keys.add(unique_key)
 
                 created_at_raw = tweet.get("createdAt") or tweet.get("created_at")
-               # st.write(
-               #     f"DEBUG: tweet.get('createdAt')={tweet.get('createdAt')}, tweet.get('created_at')={tweet.get('created_at')}")
-
                 if not created_at_raw:
-                    st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания (нет createdAt и created_at)")
+                    st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
                     continue
 
                 try:
                     parsed_date = pd.to_datetime(created_at_raw, utc=True, errors="raise")
                     created_at = parsed_date.isoformat()
-                  #  st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
                 except (ValueError, TypeError) as e:
-                    st.write(
-                        f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at_raw}), ошибка: {str(e)}")
+                    st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at_raw}), ошибка: {str(e)}")
                     continue
 
-
-                # created_at = tweet.get("createdAt", None)
-                # if not created_at:
-                #     st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
-                #     continue
-                # try:
-                #     created_at = tweet.get("createdAt", tweet.get("created_at", None)) ##
-                #     st.write(f"DEBUG: raw created_at for tweet {tweet_id}: {created_at} (type: {type(created_at)})")##
-                #
-                #     parsed_date = pd.to_datetime(created_at, utc=True, errors="raise")
-                #     created_at = parsed_date.isoformat()
-                #     st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
-                # except (ValueError, TypeError) as e:
-                #     st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at}), ошибка: {str(e)}")
-                #     continue
-
                 public_metrics = tweet.get("public_metrics", {})
-                retweet_count = public_metrics.get("retweet_count", tweet.get("retweetCount", 0))
-                reply_count = public_metrics.get("reply_count", tweet.get("replyCount", 0))
-                view_count = public_metrics.get("view_count", tweet.get("viewCount", 0))
+                retweet_count = int(public_metrics.get("retweet_count", tweet.get("retweetCount", 0)))
+                reply_count = int(public_metrics.get("reply_count", tweet.get("replyCount", 0)))
+                view_count = int(public_metrics.get("view_count", tweet.get("viewCount", 0)))
+
+                # Assign author_type based on whether the tweet is from the official username
+                author_type = "official" if screen_name.lower() == username.lower() else "external"
 
                 result.append({
                     "id_str": tweet_id,
@@ -4436,29 +4420,152 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                         "retweet_count": retweet_count,
                         "reply_count": reply_count,
                         "view_count": view_count
-                    }
+                    },
+                    "author_type": author_type,
+                    "project_name": project_name,
+                    "project_symbol": project_symbol
                 })
             return result
         except Exception as e:
             st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
             return []
 
+    # Fetch official tweets
     from_query = f"from:{username}"
-    official_tweets = fetch(from_query)
+    official_tweets = fetch(from_query, is_official=True)
     st.write(f"DEBUG: Официальные твиты ({len(official_tweets)}): {[t['id_str'] for t in official_tweets]}")
+
+    # Fetch non-official tweets with project name or symbol, excluding official account
     project_name_query = f'"{project_name}"'
     project_symbol_query = f"${project_symbol}"
     keyword_query = f"{project_name_query} OR {project_symbol_query}"
-    keyword_tweets = fetch(keyword_query)
+    keyword_tweets = fetch(keyword_query, is_official=False)
     st.write(f"DEBUG: Твиты по ключевым словам ({len(keyword_tweets)}): {[t['id_str'] for t in keyword_tweets]}")
 
+    # Combine and deduplicate tweets
     all_tweets = {}
     for tweet in official_tweets + keyword_tweets:
         tweet_id = tweet["id_str"]
         screen_name = tweet["user"]["screen_name"]
         unique_key = f"{tweet_id}_{screen_name}"
         all_tweets[unique_key] = tweet
+
     return list(all_tweets.values())
+# def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
+#                            limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
+#     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
+#     headers = {"x-api-key": twitter_api_key}
+#     since_str = start_date.strftime("%Y-%m-%d")
+#
+#     session = requests.Session()
+#     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+#     session.mount("https://", HTTPAdapter(max_retries=retries))
+#
+#     def fetch(query_string):
+#         try:
+#             params = {
+#                 "query": f"{query_string} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
+#                 "queryType": "Latest",
+#                 "limit": limit
+#             }
+#             response = session.get(url, headers=headers, params=params, timeout=10)
+#             response.raise_for_status()
+#             data = response.json()
+#
+#             tweets = []
+#             for key in ["tweets", "data", "results"]:
+#                 if key in data:
+#                     tweets = [t for t in data[key] if t.get("type") == "tweet"]
+#                     break
+#
+#             result = []
+#             processed_keys = set()
+#             for tweet in tweets:
+#                 tweet_id = str(tweet.get("id", tweet.get("id_str", str(uuid4()))))
+#
+#                 author = tweet.get("author", {})
+#                 user = tweet.get("user", {})
+#                 screen_name = author.get("userName", user.get("username", user.get("screen_name", None)))
+#                 if not screen_name:
+#                     st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует имя пользователя")
+#                     continue
+#
+#                 unique_key = f"{tweet_id}_{screen_name}"
+#                 if unique_key in processed_keys:
+#                     st.write(f"DEBUG: Пропущен твит {tweet_id}: дубликат по ключу {unique_key}")
+#                     continue
+#                 processed_keys.add(unique_key)
+#
+#                 created_at_raw = tweet.get("createdAt") or tweet.get("created_at")
+#                # st.write(
+#                #     f"DEBUG: tweet.get('createdAt')={tweet.get('createdAt')}, tweet.get('created_at')={tweet.get('created_at')}")
+#
+#                 if not created_at_raw:
+#                     st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания (нет createdAt и created_at)")
+#                     continue
+#
+#                 try:
+#                     parsed_date = pd.to_datetime(created_at_raw, utc=True, errors="raise")
+#                     created_at = parsed_date.isoformat()
+#                   #  st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
+#                 except (ValueError, TypeError) as e:
+#                     st.write(
+#                         f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at_raw}), ошибка: {str(e)}")
+#                     continue
+#
+#
+#                 # created_at = tweet.get("createdAt", None)
+#                 # if not created_at:
+#                 #     st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
+#                 #     continue
+#                 # try:
+#                 #     created_at = tweet.get("createdAt", tweet.get("created_at", None)) ##
+#                 #     st.write(f"DEBUG: raw created_at for tweet {tweet_id}: {created_at} (type: {type(created_at)})")##
+#                 #
+#                 #     parsed_date = pd.to_datetime(created_at, utc=True, errors="raise")
+#                 #     created_at = parsed_date.isoformat()
+#                 #     st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
+#                 # except (ValueError, TypeError) as e:
+#                 #     st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at}), ошибка: {str(e)}")
+#                 #     continue
+#
+#                 public_metrics = tweet.get("public_metrics", {})
+#                 retweet_count = public_metrics.get("retweet_count", tweet.get("retweetCount", 0))
+#                 reply_count = public_metrics.get("reply_count", tweet.get("replyCount", 0))
+#                 view_count = public_metrics.get("view_count", tweet.get("viewCount", 0))
+#
+#                 result.append({
+#                     "id_str": tweet_id,
+#                     "text": tweet.get("text", ""),
+#                     "created_at": created_at,
+#                     "user": {"screen_name": screen_name},
+#                     "public_metrics": {
+#                         "retweet_count": retweet_count,
+#                         "reply_count": reply_count,
+#                         "view_count": view_count
+#                     }
+#                 })
+#             return result
+#         except Exception as e:
+#             st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
+#             return []
+#
+#     from_query = f"from:{username}"
+#     official_tweets = fetch(from_query)
+#     st.write(f"DEBUG: Официальные твиты ({len(official_tweets)}): {[t['id_str'] for t in official_tweets]}")
+#     project_name_query = f'"{project_name}"'
+#     project_symbol_query = f"${project_symbol}"
+#     keyword_query = f"{project_name_query} OR {project_symbol_query}"
+#     keyword_tweets = fetch(keyword_query)
+#     st.write(f"DEBUG: Твиты по ключевым словам ({len(keyword_tweets)}): {[t['id_str'] for t in keyword_tweets]}")
+#
+#     all_tweets = {}
+#     for tweet in official_tweets + keyword_tweets:
+#         tweet_id = tweet["id_str"]
+#         screen_name = tweet["user"]["screen_name"]
+#         unique_key = f"{tweet_id}_{screen_name}"
+#         all_tweets[unique_key] = tweet
+#     return list(all_tweets.values())
 
 # Function to search documents (unchanged as requested)
 def doc_ser(user_text: str):
