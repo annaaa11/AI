@@ -4343,6 +4343,15 @@ def parse_coinmarketcap_project(url):
         "twitter": twitter_link or "Not found",
         "url": url
     }
+
+from datetime import datetime
+import requests
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+from uuid import uuid4
+import streamlit as st
+import pandas as pd
+
 def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
                           limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
@@ -4355,7 +4364,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
 
     def fetch(query_string, is_official=False):
         try:
-            # Add -from:{username} to keyword query to exclude official tweets
+            # Exclude official account from keyword query
             if not is_official:
                 query_string = f"{query_string} -from:{username}"
             params = {
@@ -4363,6 +4372,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                 "queryType": "Latest",
                 "limit": limit
             }
+            st.write(f"DEBUG: Выполняется запрос: {params['query']}")
             response = session.get(url, headers=headers, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
@@ -4372,6 +4382,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                 if key in data:
                     tweets = [t for t in data[key] if t.get("type") == "tweet"]
                     break
+            st.write(f"DEBUG: Получено {len(tweets)} твитов для запроса '{query_string}'")
 
             result = []
             processed_keys = set()
@@ -4408,7 +4419,11 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                 reply_count = int(public_metrics.get("reply_count", tweet.get("replyCount", 0)))
                 view_count = int(public_metrics.get("view_count", tweet.get("viewCount", 0)))
 
-                # Assign author_type based on whether the tweet is from the official username
+                # Дополнительная проверка фильтров на стороне клиента
+                if not is_official and (retweet_count < min_retweets or reply_count < min_replies):
+                    st.write(f"DEBUG: Пропущен твит {tweet_id}: retweet_count={retweet_count}, reply_count={reply_count} не соответствуют min_retweets={min_retweets}, min_replies={min_replies}")
+                    continue
+
                 author_type = "official" if screen_name.lower() == username.lower() else "external"
 
                 result.append({
@@ -4435,22 +4450,17 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     official_tweets = fetch(from_query, is_official=True)
     st.write(f"DEBUG: Официальные твиты ({len(official_tweets)}): {[t['id_str'] for t in official_tweets]}")
 
-    # Fetch non-official tweets with project name or symbol, excluding official account
+    # Fetch non-official tweets
     project_name_query = f'"{project_name}"'
     project_symbol_query = f"${project_symbol}"
     keyword_query = f"{project_name_query} OR {project_symbol_query}"
     keyword_tweets = fetch(keyword_query, is_official=False)
-    st.write(f"DEBUG: Твиты по ключевым словам ({len(keyword_tweets)}): {[t['id_str'] for t in keyword_tweets]}")
+    st.write(f"DEBUG: Неофициальные твиты ({len(keyword_tweets)}): {[t['id_str'] for t in keyword_tweets]}")
 
-    # Combine and deduplicate tweets
-    all_tweets = {}
-    for tweet in official_tweets + keyword_tweets:
-        tweet_id = tweet["id_str"]
-        screen_name = tweet["user"]["screen_name"]
-        unique_key = f"{tweet_id}_{screen_name}"
-        all_tweets[unique_key] = tweet
-
-    return list(all_tweets.values())
+    # Combine tweets without deduplication (handled in fetch)
+    all_tweets = official_tweets + keyword_tweets
+    st.write(f"DEBUG: Всего твитов после объединения: {len(all_tweets)}")
+    return all_tweets
 # def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
 #                            limit: int = 20, min_retweets: int = 0, min_replies: int = 0):
 #     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
