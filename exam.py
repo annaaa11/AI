@@ -308,6 +308,12 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                 response.raise_for_status()
                 data = response.json()
 
+                # Debug full API response structure
+                if tweets_fetched == 0:
+                    st.write(f"DEBUG: Структура ответа API: {list(data.keys())}")
+                    if "tweets" in data and data["tweets"]:
+                        st.write(f"DEBUG: Пример первого твита: {data['tweets'][0]}")
+
                 tweets = []
                 for key in ["tweets", "data", "results"]:
                     if key in data:
@@ -369,7 +375,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     })
                     tweets_fetched += 1
 
-                    # Debug raw tweet data for first few tweets
+                    # Debug raw data for first few tweets
                     if tweets_fetched <= 3:
                         st.write(f"DEBUG: Твит {tweet_id}: created_at_raw={created_at_raw}, retweet_count={retweet_count}, reply_count={reply_count}")
 
@@ -389,9 +395,9 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     official_tweets = fetch_paginated(from_query, is_official=True, max_tweets=limit)
     st.write(f"DEBUG: Официальные твиты ({len(official_tweets)}): {[t['id_str'] for t in official_tweets]}")
 
-    # Fetch non-official tweets without -from:{username}
+    # Fetch non-official tweets
     remaining_limit = limit - len(official_tweets)
-    project_name_query = f'"{project_name}"'
+    project_name_query = f"RWA OR Inc."  # Relaxed query to match individual words
     project_symbol_query = f"${project_symbol}"
     keyword_query = f"{project_name_query} OR {project_symbol_query}"
     keyword_tweets = fetch_paginated(keyword_query, is_official=False, max_tweets=remaining_limit)
@@ -412,6 +418,8 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     st.write(f"DEBUG: Всего уникальных твитов: {len(all_tweets)}")
 
     return all_tweets
+
+
 # Function to search documents (unchanged as requested)
 def doc_ser(user_text: str):
     """
