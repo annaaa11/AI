@@ -277,6 +277,7 @@ def parse_coinmarketcap_project(url):
 #     return all_tweets
 
 
+
 def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
                           limit: int = 60, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
@@ -290,7 +291,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     def fetch_paginated(query_string, is_official=False, max_tweets=limit):
         all_tweets = []
         processed_keys = set()
-        next_token = None
+        next_cursor = None
         tweets_fetched = 0
 
         while tweets_fetched < max_tweets:
@@ -300,17 +301,18 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     "queryType": "Latest",
                     "limit": min(20, max_tweets - tweets_fetched)
                 }
-                if next_token:
-                    params["next_token"] = next_token
+                if next_cursor:
+                    params["next_cursor"] = next_cursor
 
-                st.write(f"DEBUG: Выполняется запрос: {params['query']}, next_token={next_token}")
+                st.write(f"DEBUG: Выполняется запрос: {params['query']}, next_cursor={next_cursor}")
                 response = session.get(url, headers=headers, params=params, timeout=10)
                 response.raise_for_status()
                 data = response.json()
 
-                # Debug full API response structure
+                # Debug API response
                 if tweets_fetched == 0:
                     st.write(f"DEBUG: Структура ответа API: {list(data.keys())}")
+                    st.write(f"DEBUG: has_next_page={data.get('has_next_page')}, next_cursor={data.get('next_cursor')}")
                     if "tweets" in data and data["tweets"]:
                         st.write(f"DEBUG: Пример первого твита: {data['tweets'][0]}")
 
@@ -379,9 +381,10 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     if tweets_fetched <= 3:
                         st.write(f"DEBUG: Твит {tweet_id}: created_at_raw={created_at_raw}, retweet_count={retweet_count}, reply_count={reply_count}")
 
-                next_token = data.get("next_token")
-                if not next_token or len(tweets) == 0:
-                    st.write(f"DEBUG: Нет следующей страницы для запроса '{query_string}'")
+                next_cursor = data.get("next_cursor")
+                has_next_page = data.get("has_next_page", False)
+                if not next_cursor or not has_next_page or len(tweets) == 0:
+                    st.write(f"DEBUG: Нет следующей страницы для запроса '{query_string}' (has_next_page={has_next_page}, next_cursor={next_cursor})")
                     break
 
             except Exception as e:
@@ -397,7 +400,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
 
     # Fetch non-official tweets
     remaining_limit = limit - len(official_tweets)
-    project_name_query = f"RWA OR Inc."  # Relaxed query to match individual words
+    project_name_query = f'"RWA Inc." OR RWA'  # Refined query to reduce irrelevant results
     project_symbol_query = f"${project_symbol}"
     keyword_query = f"{project_name_query} OR {project_symbol_query}"
     keyword_tweets = fetch_paginated(keyword_query, is_official=False, max_tweets=remaining_limit)
@@ -418,7 +421,6 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     st.write(f"DEBUG: Всего уникальных твитов: {len(all_tweets)}")
 
     return all_tweets
-
 
 # Function to search documents (unchanged as requested)
 def doc_ser(user_text: str):
