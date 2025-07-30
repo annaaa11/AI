@@ -520,47 +520,103 @@ if st.button("Загрузить твиты"):
 
             # Check Pinecone contents before deletion
             try:
-                existing_docs = vector_store.similarity_search("", k=1000, namespace=namespace)
-                st.write(f"DEBUG: Найдено {len(existing_docs)} записей в неймспейсе '{namespace}' перед очисткой.")
+                filter_dict = {
+                    "$or": [
+                        {"coinmarketcap_url": normalized_coinmarketcap_url},
+                        {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
+                    ]
+                }
+                existing_docs = vector_store.similarity_search("", k=1000, namespace=namespace, filter=filter_dict)
                 existing_tweet_ids = [doc.metadata["tweet_id"] for doc in existing_docs if "tweet_id" in doc.metadata]
+                st.write(
+                    f"DEBUG: Найдено {len(existing_docs)} записей для проекта '{normalized_coinmarketcap_url}' перед очисткой.")
                 if existing_tweet_ids:
                     st.write(f"DEBUG: Пример tweet_id в базе: {existing_tweet_ids[:5]}")
+                else:
+                    st.write("DEBUG: Записи для проекта отсутствуют в базе.")
             except Exception as e:
-                st.error(f"DEBUG: Ошибка при проверке содержимого Pinecone: {str(e)}")
+                st.warning(f"DEBUG: Ошибка при проверке содержимого Pinecone: {str(e)}. Продолжаем выполнение.")
 
             # Delete records from Pinecone
             try:
-                vector_store.delete(
-                    filter={
-                        "$or": [
-                            {"coinmarketcap_url": normalized_coinmarketcap_url},
-                            {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
-                        ]
-                    },
-                    namespace=namespace
-                )
+                vector_store.delete(filter=filter_dict, namespace=namespace)
                 # Verify deletion
-                post_delete_docs = vector_store.similarity_search("", k=1000, namespace=namespace)
-                st.write(f"DEBUG: Найдено {len(post_delete_docs)} записей в неймспейсе '{namespace}' после очистки.")
+                post_delete_docs = vector_store.similarity_search("", k=1000, namespace=namespace, filter=filter_dict)
+                st.write(
+                    f"DEBUG: Найдено {len(post_delete_docs)} записей для проекта '{normalized_coinmarketcap_url}' после очистки.")
+                if post_delete_docs:
+                    st.warning(
+                        "DEBUG: Очистка не удалила все записи. Остались tweet_id: {[doc.metadata['tweet_id'] for doc in post_delete_docs[:5]]}")
             except Exception as e:
                 if "Namespace not found" not in str(e):
-                    st.error(f"Ошибка при очистке векторной базы: {str(e)}")
-                    st.stop()
+                    st.warning(f"Ошибка при очистке векторной базы: {str(e)}. Продолжаем выполнение.")
+                else:
+                    st.write("DEBUG: Неймспейс не найден, очистка не требуется.")
 
             # Clean JSON
             try:
+                # Check JSON contents before cleaning
+                st.write(f"DEBUG: Всего записей в JSON до очистки: {len(id_data)}")
+                keys_to_delete = [k for k in id_data.keys() if k.startswith(f"twitter_{official_username}_")]
+                st.write(f"DEBUG: Найдено {len(keys_to_delete)} ключей для удаления: {keys_to_delete[:5]}")
+
+                # Filter out project-related keys
                 filtered_id_data = {
                     k: v for k, v in id_data.items()
                     if not k.startswith(f"twitter_{official_username}_")
                 }
+                # Write to JSON
                 with open(json_path, "w", encoding="utf-8") as jf:
-                    json.dump(filtered_id_data, jf, ensure_ascii=False)
+                    json.dump(filtered_id_data, jf, ensure_ascii=False, indent=2)
                 id_data.clear()
                 id_data.update(filtered_id_data)
                 st.write(f"DEBUG: JSON очищен. Текущее количество записей: {len(id_data)}")
             except Exception as e:
-                st.error(f"Ошибка при очистке JSON: {str(e)}")
-                st.stop()
+                st.warning(f"Ошибка при очистке JSON: {str(e)}. Продолжаем выполнение.")
+
+            # # Check Pinecone contents before deletion
+            # try:
+            #     existing_docs = vector_store.similarity_search("", k=1000, namespace=namespace)
+            #     st.write(f"DEBUG: Найдено {len(existing_docs)} записей в неймспейсе '{namespace}' перед очисткой.")
+            #     existing_tweet_ids = [doc.metadata["tweet_id"] for doc in existing_docs if "tweet_id" in doc.metadata]
+            #     if existing_tweet_ids:
+            #         st.write(f"DEBUG: Пример tweet_id в базе: {existing_tweet_ids[:5]}")
+            # except Exception as e:
+            #     st.error(f"DEBUG: Ошибка при проверке содержимого Pinecone: {str(e)}")
+            #
+            # # Delete records from Pinecone
+            # try:
+            #     vector_store.delete(
+            #         filter={
+            #             "$or": [
+            #                 {"coinmarketcap_url": normalized_coinmarketcap_url},
+            #                 {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
+            #             ]
+            #         },
+            #         namespace=namespace
+            #     )
+            #     # Verify deletion
+            #     post_delete_docs = vector_store.similarity_search("", k=1000, namespace=namespace)
+            #     st.write(f"DEBUG: Найдено {len(post_delete_docs)} записей в неймспейсе '{namespace}' после очистки.")
+            # except Exception as e:
+            #     if "Namespace not found" not in str(e):
+            #         st.error(f"Ошибка при очистке векторной базы: {str(e)}")
+            #         st.stop()
+            #
+            # # Clean JSON
+            # try:
+            #     filtered_id_data = {
+            #         k: v for k, v in id_data.items()
+            #         if not k.startswith(f"twitter_{official_username}_")
+            #     }
+            #     with open(json_path, "w", encoding="utf-8") as jf:
+            #         json.dump(filtered_id_data, jf, ensure_ascii=False)
+            #     id_data.clear()
+            #     id_data.update(filtered_id_data)
+            #     st.write(f"DEBUG: JSON очищен. Текущее количество записей: {len(id_data)}")
+            # except Exception as e:
+            #     st.error(f"Ошибка при очистке JSON: {str(e)}")
+            #     st.stop()
 
             tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date,
                                             limit, min_retweets, min_replies)
