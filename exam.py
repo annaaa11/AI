@@ -141,14 +141,6 @@ def parse_coinmarketcap_project(url):
     }
 
 
-from datetime import datetime
-import requests
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
-from uuid import uuid4
-import streamlit as st
-import pandas as pd
-
 def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
                           limit: int = 60, min_retweets: int = 0, min_replies: int = 0):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
