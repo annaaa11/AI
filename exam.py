@@ -4229,6 +4229,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone, ServerlessSpec
 from langgraph.prebuilt import create_react_agent
+import matplotlib.dates as mdates
 
 # Apply nest_asyncio to handle async issues in Streamlit
 nest_asyncio.apply()
@@ -4389,8 +4390,8 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                 processed_keys.add(unique_key)
 
                 created_at_raw = tweet.get("createdAt") or tweet.get("created_at")
-                st.write(
-                    f"DEBUG: tweet.get('createdAt')={tweet.get('createdAt')}, tweet.get('created_at')={tweet.get('created_at')}")
+               # st.write(
+               #     f"DEBUG: tweet.get('createdAt')={tweet.get('createdAt')}, tweet.get('created_at')={tweet.get('created_at')}")
 
                 if not created_at_raw:
                     st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания (нет createdAt и created_at)")
@@ -4399,7 +4400,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                 try:
                     parsed_date = pd.to_datetime(created_at_raw, utc=True, errors="raise")
                     created_at = parsed_date.isoformat()
-                    st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
+                  #  st.write(f"DEBUG: Твит {tweet_id} ({screen_name}): parsed created_at={created_at}")
                 except (ValueError, TypeError) as e:
                     st.write(
                         f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at_raw}), ошибка: {str(e)}")
@@ -4822,11 +4823,15 @@ try:
                             st.warning(
                                 "Коэффициент вовлеченности не может быть рассчитан: недостаточно данных или нулевая/отрицательная разница фолловеров и подписок.")
 
-                    official_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
-                    other_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
+
+
+                    # Aggregate metrics by datetime (not just date) to preserve hours
+                    official_metrics = pd.DataFrame(
+                        columns=["created_at", "view_count", "retweet_count", "reply_count"])
+                    other_metrics = pd.DataFrame(columns=["created_at", "view_count", "retweet_count", "reply_count"])
 
                     if not official_tweets_df.empty:
-                        official_metrics = official_tweets_df.groupby("date").agg({
+                        official_metrics = official_tweets_df.groupby("created_at").agg({
                             "view_count": "sum",
                             "retweet_count": "sum",
                             "reply_count": "sum"
@@ -4836,7 +4841,7 @@ try:
                         st.warning("Нет твитов от официального аккаунта для анализа.")
 
                     if not other_tweets_df.empty:
-                        other_metrics = other_tweets_df.groupby("date").agg({
+                        other_metrics = other_tweets_df.groupby("created_at").agg({
                             "view_count": "sum",
                             "retweet_count": "sum",
                             "reply_count": "sum"
@@ -4847,19 +4852,26 @@ try:
 
                     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
 
+                    # Plot official tweets
                     if not official_metrics.empty:
-                        ax1.plot(official_metrics["date"], official_metrics["view_count"], label="Просмотры", marker="o",
-                                 color="blue")
+                        ax1.plot(official_metrics["created_at"], official_metrics["view_count"], label="Просмотры",
+                                 marker="o", color="blue")
                         ax1.set_ylabel("Просмотры", color="blue")
                         ax1.tick_params(axis="y", labelcolor="blue")
 
                         ax1_twin = ax1.twinx()
-                        ax1_twin.plot(official_metrics["date"], official_metrics["retweet_count"], label="Ретвиты",
-                                      marker="o", color="green")
-                        ax1_twin.plot(official_metrics["date"], official_metrics["reply_count"], label="Ответы",
+                        ax1_twin.plot(official_metrics["created_at"], official_metrics["retweet_count"],
+                                      label="Ретвиты", marker="o", color="green")
+                        ax1_twin.plot(official_metrics["created_at"], official_metrics["reply_count"], label="Ответы",
                                       marker="o", color="red")
                         ax1_twin.set_ylabel("Ретвиты / Ответы", color="black")
                         ax1_twin.tick_params(axis="y", labelcolor="black")
+
+                        # Set x-axis to show date and time with 3-hour intervals
+                        ax1.xaxis.set_major_locator(mdates.HourLocator(interval=3))  # Ticks every 3 hours
+                        ax1.xaxis.set_major_formatter(
+                            mdates.DateFormatter("%Y-%m-%d %H:%M"))  # Format: YYYY-MM-DD HH:MM
+                        ax1.tick_params(axis="x", rotation=45)
 
                         lines1, labels1 = ax1.get_legend_handles_labels()
                         lines2, labels2 = ax1_twin.get_legend_handles_labels()
@@ -4868,23 +4880,29 @@ try:
                         ax1.text(0.5, 0.5, "Нет данных для официальных твитов", horizontalalignment="center",
                                  verticalalignment="center")
                     ax1.set_title("Аналитика твитов официального аккаунта")
-                    ax1.set_xlabel("Дата")
+                    ax1.set_xlabel("Дата и время")
                     ax1.grid(True)
-                    ax1.tick_params(axis="x", rotation=45)
 
+                    # Plot other tweets
                     if not other_metrics.empty:
-                        ax2.plot(other_metrics["date"], other_metrics["view_count"], label="Просмотры", marker="o",
-                                 color="blue")
+                        ax2.plot(other_metrics["created_at"], other_metrics["view_count"], label="Просмотры",
+                                 marker="o", color="blue")
                         ax2.set_ylabel("Просмотры", color="blue")
                         ax2.tick_params(axis="y", labelcolor="blue")
 
                         ax2_twin = ax2.twinx()
-                        ax2_twin.plot(other_metrics["date"], other_metrics["retweet_count"], label="Ретвиты",
+                        ax2_twin.plot(other_metrics["created_at"], other_metrics["retweet_count"], label="Ретвиты",
                                       marker="o", color="green")
-                        ax2_twin.plot(other_metrics["date"], other_metrics["reply_count"], label="Ответы", marker="o",
-                                      color="red")
+                        ax2_twin.plot(other_metrics["created_at"], other_metrics["reply_count"], label="Ответы",
+                                      marker="o", color="red")
                         ax2_twin.set_ylabel("Ретвиты / Ответы", color="black")
                         ax2_twin.tick_params(axis="y", labelcolor="black")
+
+                        # Set x-axis to show date and time with 3-hour intervals
+                        ax2.xaxis.set_major_locator(mdates.HourLocator(interval=3))  # Ticks every 3 hours
+                        ax2.xaxis.set_major_formatter(
+                            mdates.DateFormatter("%Y-%m-%d %H:%M"))  # Format: YYYY-MM-DD HH:MM
+                        ax2.tick_params(axis="x", rotation=45)
 
                         lines1, labels1 = ax2.get_legend_handles_labels()
                         lines2, labels2 = ax2_twin.get_legend_handles_labels()
@@ -4893,12 +4911,88 @@ try:
                         ax2.text(0.5, 0.5, "Нет данных для других твитов", horizontalalignment="center",
                                  verticalalignment="center")
                     ax2.set_title("Аналитика остальных твитов")
-                    ax2.set_xlabel("Дата")
+                    ax2.set_xlabel("Дата и время")
                     ax2.grid(True)
-                    ax2.tick_params(axis="x", rotation=45)
 
                     plt.tight_layout()
                     st.pyplot(fig)
+                    # official_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
+                    # other_metrics = pd.DataFrame(columns=["date", "view_count", "retweet_count", "reply_count"])
+                    #
+                    # if not official_tweets_df.empty:
+                    #     official_metrics = official_tweets_df.groupby("date").agg({
+                    #         "view_count": "sum",
+                    #         "retweet_count": "sum",
+                    #         "reply_count": "sum"
+                    #     }).reset_index()
+                    #     st.write(f"Найдено {len(official_tweets_df)} официальных твитов.")
+                    # else:
+                    #     st.warning("Нет твитов от официального аккаунта для анализа.")
+                    #
+                    # if not other_tweets_df.empty:
+                    #     other_metrics = other_tweets_df.groupby("date").agg({
+                    #         "view_count": "sum",
+                    #         "retweet_count": "sum",
+                    #         "reply_count": "sum"
+                    #     }).reset_index()
+                    #     st.write(f"Найдено {len(other_tweets_df)} других твитов.")
+                    # else:
+                    #     st.warning("Нет других твитов для анализа.")
+                    #
+                    # fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 12))
+                    #
+                    # if not official_metrics.empty:
+                    #     ax1.plot(official_metrics["date"], official_metrics["view_count"], label="Просмотры", marker="o",
+                    #              color="blue")
+                    #     ax1.set_ylabel("Просмотры", color="blue")
+                    #     ax1.tick_params(axis="y", labelcolor="blue")
+                    #
+                    #     ax1_twin = ax1.twinx()
+                    #     ax1_twin.plot(official_metrics["date"], official_metrics["retweet_count"], label="Ретвиты",
+                    #                   marker="o", color="green")
+                    #     ax1_twin.plot(official_metrics["date"], official_metrics["reply_count"], label="Ответы",
+                    #                   marker="o", color="red")
+                    #     ax1_twin.set_ylabel("Ретвиты / Ответы", color="black")
+                    #     ax1_twin.tick_params(axis="y", labelcolor="black")
+                    #
+                    #     lines1, labels1 = ax1.get_legend_handles_labels()
+                    #     lines2, labels2 = ax1_twin.get_legend_handles_labels()
+                    #     ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+                    # else:
+                    #     ax1.text(0.5, 0.5, "Нет данных для официальных твитов", horizontalalignment="center",
+                    #              verticalalignment="center")
+                    # ax1.set_title("Аналитика твитов официального аккаунта")
+                    # ax1.set_xlabel("Дата")
+                    # ax1.grid(True)
+                    # ax1.tick_params(axis="x", rotation=45)
+                    #
+                    # if not other_metrics.empty:
+                    #     ax2.plot(other_metrics["date"], other_metrics["view_count"], label="Просмотры", marker="o",
+                    #              color="blue")
+                    #     ax2.set_ylabel("Просмотры", color="blue")
+                    #     ax2.tick_params(axis="y", labelcolor="blue")
+                    #
+                    #     ax2_twin = ax2.twinx()
+                    #     ax2_twin.plot(other_metrics["date"], other_metrics["retweet_count"], label="Ретвиты",
+                    #                   marker="o", color="green")
+                    #     ax2_twin.plot(other_metrics["date"], other_metrics["reply_count"], label="Ответы", marker="o",
+                    #                   color="red")
+                    #     ax2_twin.set_ylabel("Ретвиты / Ответы", color="black")
+                    #     ax2_twin.tick_params(axis="y", labelcolor="black")
+                    #
+                    #     lines1, labels1 = ax2.get_legend_handles_labels()
+                    #     lines2, labels2 = ax2_twin.get_legend_handles_labels()
+                    #     ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+                    # else:
+                    #     ax2.text(0.5, 0.5, "Нет данных для других твитов", horizontalalignment="center",
+                    #              verticalalignment="center")
+                    # ax2.set_title("Аналитика остальных твитов")
+                    # ax2.set_xlabel("Дата")
+                    # ax2.grid(True)
+                    # ax2.tick_params(axis="x", rotation=45)
+                    #
+                    # plt.tight_layout()
+                    # st.pyplot(fig)
 
 except Exception as e:
     st.error(f"Ошибка при обработке аналитики: {str(e)}")
