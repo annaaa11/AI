@@ -23,7 +23,6 @@ import matplotlib.dates as mdates
 from datetime import datetime
 import requests
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
 from uuid import uuid4
 import streamlit as st
 import pandas as pd
