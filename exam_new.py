@@ -20,7 +20,6 @@ from langgraph.prebuilt import create_react_agent  # Для создания а�
 import matplotlib.dates as mdates  # Для форматирования дат на графиках (аналитика твитов)
 import pandas as pd  # Для обработки данных в таблицах (аналитика твитов, парсинг дат)
 
-
 # """
 # Этот код — веб-приложение на Streamlit для анализа твитов, связанных с криптовалютными проектами.
 # Парсит данные с CoinMarketCap: Извлекает название, символ и Twitter-аккаунт проекта по URL.
