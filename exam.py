@@ -325,10 +325,10 @@ st.title("Crypto Twitter Search")
 
 
 # Add tweets
-st.subheader("Добавить твиты в базу")
+st.subheader("Add tweets to the database")
 
 # Button to clear Pinecone and JSON
-if st.button("Очистить базу"):
+if st.button("Clear Pinecone and JSON"):
     namespace = ""
     try:
         vector_store.delete(delete_all=True, namespace=namespace)
@@ -348,17 +348,17 @@ if st.button("Очистить базу"):
         st.error(f"Ошибка при очистке JSON: {str(e)}")
 
 coinmarketcap_url = st.text_input(
-    "Введите URL CoinMarketCap (например, https://coinmarketcap.com/currencies/legends-of-elumia/):")
-start_date = st.date_input("Выберите начальную дату:", value=datetime.now().date() - timedelta(days=7))
-limit = st.number_input("Количество твитов:", min_value=1, max_value=100, value=20)
-min_retweets = st.number_input("Минимальное количество ретвитов:", min_value=0, value=0)
-min_replies = st.number_input("Минимальное количество ответов:", min_value=0, value=0)
+    "Enter the CoinMarketCap URL (eg. https://coinmarketcap.com/currencies/legends-of-elumia/):")
+start_date = st.date_input("Select start date::", value=datetime.now().date() - timedelta(days=7))
+limit = st.number_input("Number of tweets:", min_value=1, max_value=100, value=20)
+min_retweets = st.number_input("Minimum number of retweets:", min_value=0, value=0)
+min_replies = st.number_input("Minimum number of answers:", min_value=0, value=0)
 
 
 def normalize_url(url: str) -> str:
     return url.strip().rstrip("/")
 
-if st.button("Загрузить твиты"):
+if st.button("Load tweets"):
     if coinmarketcap_url:
         normalized_coinmarketcap_url = normalize_url(coinmarketcap_url)
         project_info = parse_coinmarketcap_project(coinmarketcap_url)
@@ -538,7 +538,7 @@ if st.button("Загрузить твиты"):
 
 
 # Analytics
-st.subheader("Аналитика твитов")
+st.subheader("Analytics")
 
 try:
     all_docs = vector_store.similarity_search("", k=1000)
@@ -548,9 +548,9 @@ try:
     if not unique_projects:
         st.error("Нет данных в векторной базе для анализа. Загрузите твиты сначала.")
     else:
-        selected_project = st.selectbox("Выберите проект для анализа:", options=unique_projects, index=0)
+        selected_project = st.selectbox("Select a project to analyze:", options=unique_projects, index=0)
 
-        if st.button("Вывести аналитику"):
+        if st.button("Display analytics"):
             filter_dict = {
                 "$or": [
                     {"coinmarketcap_url": normalize_url(selected_project)},
@@ -593,7 +593,7 @@ try:
                         twitter_url = project_info["twitter"]
                         project_name = project_info["name"]
                         project_symbol = project_info["symbol"]
-                        st.write(f"Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol})")
+                        st.write(f"Twitter: {twitter_url} (project: {project_name}, project_symbol: {project_symbol})")
                     else:
                         st.warning("Не удалось получить информацию о проекте из CoinMarketCap.")
 
@@ -606,14 +606,14 @@ try:
                     if first_official_doc:
                         official_username = first_official_doc.metadata.get("author_username")
                         followers, following = get_user_info(official_username)
-                        st.write(f"Подписчики: {followers}")
-                        st.write(f"Подписки: {following}")
+                        st.write(f"followers: {followers}")
+                        st.write(f"following: {following}")
                         # Calculate engagement ratio
                         if not official_tweets_df.empty and followers > following:
                             avg_engagement = (
                                         official_tweets_df["retweet_count"] + official_tweets_df["reply_count"]).mean()
                             engagement_ratio = avg_engagement / (followers - following)
-                            st.write(f"Коэффициент вовлеченности фолловеров: {engagement_ratio:.4f}")
+                            st.write(f"Follower Engagement Rate: {engagement_ratio:.4f}")
                         else:
                             st.warning(
                                 "Коэффициент вовлеченности не может быть рассчитан: недостаточно данных или нулевая/отрицательная разница фолловеров и подписок.")
@@ -631,7 +631,7 @@ try:
                             "retweet_count": "sum",
                             "reply_count": "sum"
                         }).reset_index()
-                        st.write(f"Найдено {len(official_tweets_df)} официальных твитов.")
+                        st.write(f"Found {len(official_tweets_df)} official tweets")
                     else:
                         st.warning("Нет твитов от официального аккаунта для анализа.")
 
@@ -641,7 +641,7 @@ try:
                             "retweet_count": "sum",
                             "reply_count": "sum"
                         }).reset_index()
-                        st.write(f"Найдено {len(other_tweets_df)} других твитов.")
+                        st.write(f"Found {len(other_tweets_df)} other tweets.")
                     else:
                         st.warning("Нет других твитов для анализа.")
 
@@ -649,17 +649,17 @@ try:
 
                     # Plot official tweets
                     if not official_metrics.empty:
-                        ax1.plot(official_metrics["created_at"], official_metrics["view_count"], label="Просмотры",
+                        ax1.plot(official_metrics["created_at"], official_metrics["view_count"], label="Views",
                                  marker="o", color="blue")
-                        ax1.set_ylabel("Просмотры", color="blue")
+                        ax1.set_ylabel("Views", color="blue")
                         ax1.tick_params(axis="y", labelcolor="blue")
 
                         ax1_twin = ax1.twinx()
                         ax1_twin.plot(official_metrics["created_at"], official_metrics["retweet_count"],
-                                      label="Ретвиты", marker="o", color="green")
-                        ax1_twin.plot(official_metrics["created_at"], official_metrics["reply_count"], label="Ответы",
+                                      label="Retweets", marker="o", color="green")
+                        ax1_twin.plot(official_metrics["created_at"], official_metrics["reply_count"], label="Replies",
                                       marker="o", color="red")
-                        ax1_twin.set_ylabel("Ретвиты / Ответы", color="black")
+                        ax1_twin.set_ylabel("Retweets / Replies", color="black")
                         ax1_twin.tick_params(axis="y", labelcolor="black")
 
                         # Set x-axis to show date and time with 3-hour intervals
@@ -674,23 +674,23 @@ try:
                     else:
                         ax1.text(0.5, 0.5, "Нет данных для официальных твитов", horizontalalignment="center",
                                  verticalalignment="center")
-                    ax1.set_title("Аналитика твитов официального аккаунта")
-                    ax1.set_xlabel("Дата и время")
+                    ax1.set_title("Official Account Tweet Analytics")
+                    ax1.set_xlabel("Date and time")
                     ax1.grid(True)
 
                     # Plot other tweets
                     if not other_metrics.empty:
-                        ax2.plot(other_metrics["created_at"], other_metrics["view_count"], label="Просмотры",
+                        ax2.plot(other_metrics["created_at"], other_metrics["view_count"], label="Views",
                                  marker="o", color="blue")
-                        ax2.set_ylabel("Просмотры", color="blue")
+                        ax2.set_ylabel("Views", color="blue")
                         ax2.tick_params(axis="y", labelcolor="blue")
 
                         ax2_twin = ax2.twinx()
-                        ax2_twin.plot(other_metrics["created_at"], other_metrics["retweet_count"], label="Ретвиты",
+                        ax2_twin.plot(other_metrics["created_at"], other_metrics["retweet_count"], label="Retweets",
                                       marker="o", color="green")
-                        ax2_twin.plot(other_metrics["created_at"], other_metrics["reply_count"], label="Ответы",
+                        ax2_twin.plot(other_metrics["created_at"], other_metrics["reply_count"], label="Replies",
                                       marker="o", color="red")
-                        ax2_twin.set_ylabel("Ретвиты / Ответы", color="black")
+                        ax2_twin.set_ylabel("Retweets / Replies", color="black")
                         ax2_twin.tick_params(axis="y", labelcolor="black")
 
                         # Set x-axis to show date and time with 3-hour intervals
@@ -705,8 +705,8 @@ try:
                     else:
                         ax2.text(0.5, 0.5, "Нет данных для других твитов", horizontalalignment="center",
                                  verticalalignment="center")
-                    ax2.set_title("Аналитика остальных твитов")
-                    ax2.set_xlabel("Дата и время")
+                    ax2.set_title("Analytics of other tweets")
+                    ax2.set_xlabel("Date and time")
                     ax2.grid(True)
 
                     plt.tight_layout()
@@ -717,7 +717,7 @@ except Exception as e:
     st.error(f"Ошибка при обработке аналитики: {str(e)}")
 
 # Chat with search
-st.subheader("Чат с поиском по векторной базе")
+st.subheader("Chat with search by vector base of project tweets")
 
 if 'data' not in st.session_state:
     st.session_state["data"] = {'messages': [
