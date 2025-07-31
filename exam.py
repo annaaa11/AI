@@ -20,6 +20,19 @@ from langgraph.prebuilt import create_react_agent  # Для создания а�
 import matplotlib.dates as mdates  # Для форматирования дат на графиках (аналитика твитов)
 import pandas as pd  # Для обработки данных в таблицах (аналитика твитов, парсинг дат)
 
+"""
+Этот код — веб-приложение на Streamlit для анализа твитов, связанных с криптовалютными проектами.
+Парсит данные с CoinMarketCap: Извлекает название, символ и Twitter-аккаунт проекта по URL.
+Собирает твиты: Использует Twitter API для поиска твитов официального аккаунта проекта и упоминаний проекта (по названию или символу).
+Хранит данные в Pinecone: Сохраняет твиты в векторной базе с эмбеддингами (GoogleGenerativeAIEmbeddings) для поиска.
+Анализирует твиты: Визуализирует статистику (просмотры, ретвиты, ответы) официальных и сторонних твитов с помощью графиков (matplotlib).
+Предоставляет чат-бот: Использует LangChain и Google Gemini для ответов на вопросы с учетом данных из Pinecone.
+
+Помогает анализировать активность и вовлеченность в Twitter для криптопроектов, предоставляя визуальную аналитику и поиск по твитам.
+
+"""
+
+
 # Apply nest_asyncio to handle async issues in Streamlit
 nest_asyncio.apply()
 
@@ -29,7 +42,7 @@ dotenv.load_dotenv()
 # API keys
 api_key = os.getenv("GEMINI_API_KEY")
 pinecone_key = os.getenv("PINECONE_API_KEY")
-twitter_api_key = os.getenv("TWITTER_API_KEY") or "c769bb7d2f3742828d13bad15b7262d1"
+twitter_api_key = os.getenv("TWITTER_API_KEY")
 
 # Validate API keys
 if not api_key:
@@ -74,7 +87,7 @@ except Exception as e:
 index = pc.Index(index_name)
 vector_store = PineconeVectorStore(index=index, embedding=embeddings)
 
-# JSON for storing IDs
+# JSON for storing IDs  сохранение и управление ID твитов для предотвращения дублирования и синхронизации данных.
 json_path = "data_ai.json"
 if os.path.exists(json_path):
     try:
@@ -86,7 +99,63 @@ if os.path.exists(json_path):
 else:
     id_data = {}
 
+
+
+# Function to check if tweet exists in Pinecone
+#Функция проверяет, был ли уже добавлен твит с данным tweet_id в векторную базу Pinecone.
+#Используется для избежания дублирования.
+def already_exists(tweet_id: str, namespace: str = "") -> bool:
+    try:
+        response = index.fetch(ids=[tweet_id], namespace=namespace)
+        exists = tweet_id in (response.vectors if hasattr(response, 'vectors') else response.get("vectors", {}))
+        return exists
+    except Exception as e:
+        st.error(f"Ошибка при проверке tweet_id {tweet_id} в Pinecone: {str(e)}")
+        return False
+
+
+# Функция для поиска документов в векторной базе Pinecone по пользовательскому запросу.
+def doc_ser(user_text: str):
+    """
+    Search for documents in the vector database based on user query.
+
+    Args:
+        user_text (str): The user's query text to search for similar documents.
+
+    Returns:
+        List[Document]: A list of the top 3 most similar documents from the vector database.
+    """
+    try:
+        # Использует метод similarity_search для поиска топ-3 документов, наиболее похожих на user_text.
+        # k=3 указывает, что нужно вернуть 3 наиболее релевантных документа.
+        docs = vector_store.similarity_search(user_text, k=3)
+        return docs
+    except Exception as e:
+        st.error(f"Error during vector store search: {str(e)}")
+        return []
+
+# LLM and agent
+try:
+    llm = ChatGoogleGenerativeAI(
+        model='gemini-2.0-flash',
+        google_api_key=api_key
+    )
+except Exception as e:
+    st.error(f"Failed to initialize ChatGoogleGenerativeAI: {str(e)}")
+    st.stop()
+
+try:
+    agent = create_react_agent(
+        model=llm,
+        tools=[doc_ser]
+    )
+except Exception as e:
+    st.error(f"Failed to create agent: {str(e)}")
+    st.stop()
+
+# Функции для работы с Twitter
 # Function to parse CoinMarketCap project page
+# Парсит страницу проекта на CoinMarketCap, извлекая название проекта, его символ и ссылку на Twitter-аккаунт.
 def parse_coinmarketcap_project(url):
     headers = {
         "User-Agent": "Mozilla/5.0"
@@ -133,39 +202,56 @@ def parse_coinmarketcap_project(url):
         "url": url
     }
 
+# Функция для поиска твитов по запросу, имени пользователя, названию и символу проекта с фильтрацией по дате и вовлеченности.
 def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
                           limit: int = 60, min_retweets: int = 0, min_replies: int = 0):
+    # Устанавливает URL Twitter API и заголовок с API-ключом.
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     headers = {"x-api-key": twitter_api_key}
+    # Форматирует начальную дату для фильтрации твитов (формат YYYY-MM-DD).
     since_str = start_date.strftime("%Y-%m-%d")
 
+    # Создает HTTP-сессию с механизмом повторов (3 попытки) для обработки ошибок (429, 500, 502, 503, 504).
     session = requests.Session()
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount("https://", HTTPAdapter(max_retries=retries))
 
+    # Внутренняя функция для постраничного получения твитов.
     def fetch_paginated(query_string, is_official=False, max_tweets=limit):
+        # Словарь для хранения уникальных твитов (ключ: tweet_id + screen_name).
         all_tweets = {}
+        # Токен для следующей страницы (для пагинации).
         next_token = None
+        # Счетчик собранных твитов.
         tweets_fetched = 0
 
+        # Цикл продолжается, пока не собрано нужное количество твитов (max_tweets).
         while tweets_fetched < max_tweets:
             try:
+                # Вычисляет, сколько твитов осталось собрать.
                 remaining_tweets = max_tweets - tweets_fetched
+                # Для неофициальных твитов исключает твиты от указанного пользователя.
                 if not is_official:
                     query_string = f"{query_string} -from:{username}"
+                # Формирует параметры запроса: запрос, тип (последние твиты), лимит, фильтры по дате и вовлеченности.
                 params = {
                     "query": f"{query_string} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
                     "queryType": "Latest",
                     "limit": remaining_tweets
                 }
+                # Добавляет токен пагинации, если он есть.
                 if next_token:
                     params["next_token"] = next_token
 
+                # Выполняет GET-запрос к Twitter API с таймаутом 10 секунд.
                 # st.write(f"DEBUG: Выполняется запрос: {params['query']}, next_token={next_token}")
                 response = session.get(url, headers=headers, params=params, timeout=10)
+                # Проверяет успешность запроса (вызывает исключение при ошибке HTTP).
                 response.raise_for_status()
+                # Преобразует ответ в JSON.
                 data = response.json()
 
+                # Извлекает твиты из ответа (проверяет возможные ключи: tweets, data, results).
                 tweets = []
                 for key in ["tweets", "data", "results"]:
                     if key in data:
@@ -173,25 +259,35 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                         break
                 # st.write(f"DEBUG: Получено {len(tweets)} твитов для запроса '{query_string}'")
 
+                # Обрабатывает каждый твит из ответа.
                 for tweet in tweets:
+                    # Извлекает ID твита, используя "id", "id_str" или генерирует UUID как запасной вариант.
                     tweet_id = str(tweet.get("id", tweet.get("id_str", str(uuid4()))))
+                    # Извлекает данные об авторе из полей "author" или "user".
                     author = tweet.get("author", {})
                     user = tweet.get("user", {})
+                    # Извлекает имя пользователя (screen_name) из возможных полей.
                     screen_name = author.get("userName", user.get("username", user.get("screen_name", None)))
+                    # Пропускает твит, если имя пользователя отсутствует.
                     if not screen_name:
                         # st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует имя пользователя")
                         continue
 
+                    # Формирует уникальный ключ для твита (tweet_id + screen_name).
                     unique_key = f"{tweet_id}_{screen_name}"
+                    # Пропускает твит, если он уже обработан (дубликат).
                     if unique_key in all_tweets:
                         # st.write(f"DEBUG: Пропущен твит {tweet_id}: дубликат по ключу {unique_key}")
                         continue
 
+                    # Извлекает дату создания твита из "createdAt" или "created_at".
                     created_at_raw = tweet.get("createdAt") or tweet.get("created_at")
+                    # Пропускает твит, если дата отсутствует.
                     if not created_at_raw:
                         # st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
                         continue
 
+                    # Парсит дату в формат ISO (UTC), пропускает твит при ошибке парсинга.
                     try:
                         parsed_date = pd.to_datetime(created_at_raw, utc=True, errors="raise")
                         created_at = parsed_date.isoformat()
@@ -199,16 +295,20 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                         # st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at_raw}), ошибка: {str(e)}")
                         continue
 
+                    # Извлекает метрики вовлеченности (ретвиты, ответы, просмотры) из "public_metrics" или запасных полей.
                     public_metrics = tweet.get("public_metrics", {})
                     retweet_count = int(public_metrics.get("retweet_count", tweet.get("retweetCount", 0)))
                     reply_count = int(public_metrics.get("reply_count", tweet.get("replyCount", 0)))
                     view_count = int(public_metrics.get("view_count", tweet.get("viewCount", 0)))
 
+                    # Для неофициальных твитов проверяет минимальные значения ретвитов и ответов.
                     if not is_official and (retweet_count < min_retweets or reply_count < min_replies):
                         # st.write(f"DEBUG: Пропущен твит {tweet_id}: retweet_count={retweet_count}, reply_count={reply_count} не соответствуют min_retweets={min_retweets}, min_replies={min_replies}")
                         continue
 
+                    # Определяет тип автора: "official" для указанного username, иначе "external".
                     author_type = "official" if screen_name.lower() == username.lower() else "external"
+                    # Сохраняет твит в словарь all_tweets с метаданными.
                     all_tweets[unique_key] = {
                         "id_str": tweet_id,
                         "text": tweet.get("text", ""),
@@ -223,56 +323,50 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                         "project_name": project_name,
                         "project_symbol": project_symbol
                     }
+                    # Увеличивает счетчик собранных твитов.
                     tweets_fetched += 1
 
+                # Получает токен для следующей страницы пагинации.
                 next_token = data.get("next_token")
+                # Прерывает цикл, если нет следующей страницы или твиты не получены.
                 if not next_token or len(tweets) == 0:
                     # st.write(f"DEBUG: Нет следующей страницы для запроса '{query_string}'")
                     break
 
+            # Обрабатывает ошибки API, выводит сообщение и прерывает цикл.
             except Exception as e:
                 st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
                 break
 
+        # Возвращает список уникальных твитов, ограниченный max_tweets.
         return list(all_tweets.values())[:max_tweets]
 
+    # Формирует запрос для официальных твитов (от указанного username).
     from_query = f"from:{username}"
+    # Собирает официальные твиты, используя fetch_paginated.
     official_tweets = fetch_paginated(from_query, is_official=True, max_tweets=limit)
     # st.write(f"DEBUG: Официальные твиты ({len(official_tweets)}): {[t['id_str'] for t in official_tweets]}")
 
+    # Вычисляет, сколько неофициальных твитов нужно собрать (общий лимит минус официальные).
     remaining_limit = limit - len(official_tweets)
+    # Формирует запрос для поиска твитов, содержащих название или символ проекта.
     project_name_query = f'"{project_name}"'
     project_symbol_query = f"${project_symbol}"
     keyword_query = f"{project_name_query} OR {project_symbol_query}"
+    # Собирает неофициальные твиты (упоминания проекта).
     keyword_tweets = fetch_paginated(keyword_query, is_official=False, max_tweets=remaining_limit)
     # st.write(f"DEBUG: Неофициальные твиты ({len(keyword_tweets)}): {[t['id_str'] for t in keyword_tweets]}")
 
+    # Объединяет официальные и неофициальные твиты.
     all_tweets = official_tweets + keyword_tweets
     # st.write(f"DEBUG: Всего твитов после объединения: {len(all_tweets)}")
     # st.write(f"DEBUG: Всего уникальных твитов: {len(all_tweets)}")
 
+    # Выводит итоговое сообщение с количеством найденных твитов.
     st.info(f"Найдено {len(all_tweets)} твитов для проекта {project_name}.")
+    # Возвращает список всех собранных твитов.
     return all_tweets
 
-
-
-# Function to search documents (unchanged as requested)
-def doc_ser(user_text: str):
-    """
-    Search for documents in the vector database based on user query.
-
-    Args:
-        user_text (str): The user's query text to search for similar documents.
-
-    Returns:
-        List[Document]: A list of the top 3 most similar documents from the vector database.
-    """
-    try:
-        docs = vector_store.similarity_search(user_text, k=3)
-        return docs
-    except Exception as e:
-        st.error(f"Error during vector store search: {str(e)}")
-        return []
 
 # Function to get user info
 def get_user_info(username):
@@ -280,7 +374,8 @@ def get_user_info(username):
     headers = {"x-api-key": twitter_api_key}
     try:
         response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
+        #Отправляет GET-запрос к API Twitter с таймаутом 10 секунд.
+        if response.status_code == 200: #Если успешен — получает JSON-ответ и парсит его в Python-словарь.
             data = response.json()
             user = data.get("user") or data.get("data") or {}
             followers = user.get("followers") or user.get("public_metrics", {}).get("followers_count", 0)
@@ -291,38 +386,11 @@ def get_user_info(username):
     except Exception:
         return 0, 0
 
-# Function to check if tweet exists in Pinecone
-def already_exists(tweet_id: str, namespace: str = "") -> bool:
-    try:
-        response = index.fetch(ids=[tweet_id], namespace=namespace)
-        exists = tweet_id in (response.vectors if hasattr(response, 'vectors') else response.get("vectors", {}))
-        return exists
-    except Exception as e:
-        st.error(f"Ошибка при проверке tweet_id {tweet_id} в Pinecone: {str(e)}")
-        return False
 
-# LLM and agent
-try:
-    llm = ChatGoogleGenerativeAI(
-        model='gemini-2.0-flash',
-        google_api_key=api_key
-    )
-except Exception as e:
-    st.error(f"Failed to initialize ChatGoogleGenerativeAI: {str(e)}")
-    st.stop()
-
-try:
-    agent = create_react_agent(
-        model=llm,
-        tools=[doc_ser]
-    )
-except Exception as e:
-    st.error(f"Failed to create agent: {str(e)}")
-    st.stop()
+###############
 
 # Streamlit interface
 st.title("Crypto Twitter Search")
-
 
 # Add tweets
 st.subheader("Add tweets to the database")
@@ -346,7 +414,9 @@ if st.button("Clear Pinecone and JSON"):
         st.success("JSON-файл очищен.")
     except Exception as e:
         st.error(f"Ошибка при очистке JSON: {str(e)}")
+####################
 
+# параметры для загрузки твитов
 coinmarketcap_url = st.text_input(
     "Enter the CoinMarketCap URL (eg. https://coinmarketcap.com/currencies/legends-of-elumia/):")
 start_date = st.date_input("Select start date::", value=datetime.now().date() - timedelta(days=7))
@@ -374,9 +444,10 @@ if st.button("Load tweets"):
                 st.stop()
             st.info(f"Найден Twitter: {twitter_url} (Проект: {project_name}, Символ: {project_symbol}, Username: {official_username})")
 
-            st.session_state["tweets"] = []
-            namespace = ""
+            st.session_state["tweets"] = [] # Инициализирует пустой список для хранения твитов в сессии
+            namespace = ""  # Устанавливает пустое пространство имен для векторной базы
 
+            # Проверяет существующие записи в векторной базе (Pinecone)
             try:
                 filter_dict = {
                     "$or": [
@@ -384,8 +455,10 @@ if st.button("Load tweets"):
                         {"coinmarketcap_url": normalized_coinmarketcap_url + "/"}
                     ]
                 }
+                # Выполняет поиск существующих документов в векторной базе
                 existing_docs = vector_store.similarity_search("", k=1000, namespace=namespace, filter=filter_dict)
                 # st.write(f"DEBUG: Найдено {len(existing_docs)} записей для проекта '{normalized_coinmarketcap_url}' перед очисткой.")
+                # Извлекает ID твитов из существующих документов
                 existing_tweet_ids = [doc.metadata["tweet_id"] for doc in existing_docs if "tweet_id" in doc.metadata]
                 # if existing_tweet_ids:
                 #     st.write(f"DEBUG: Пример tweet_id в базе: {existing_tweet_ids[:5]}")
@@ -394,8 +467,10 @@ if st.button("Load tweets"):
             except Exception as e:
                 st.warning(f"Ошибка при проверке содержимого Pinecone: {str(e)}. Продолжаем выполнение.")
 
+            # Очищает существующие записи в векторной базе
             try:
                 vector_store.delete(filter=filter_dict, namespace=namespace)
+                # Проверяет, остались ли записи после очистки
                 post_delete_docs = vector_store.similarity_search("", k=1000, namespace=namespace, filter=filter_dict)
                 # st.write(f"DEBUG: Найдено {len(post_delete_docs)} записей для проекта '{normalized_coinmarketcap_url}' после очистки.")
                 if post_delete_docs:
@@ -407,6 +482,8 @@ if st.button("Load tweets"):
                 #     st.write("DEBUG: Неймспейс не найден, очистка не требуется.")
 
             try:
+                # Очищает JSON-файл от записей, связанных с текущим Twitter-пользователем
+                # JSON-файл - это анахронизм, для работы не нужен, буду убирать его
                 # st.write(f"DEBUG: Всего записей в JSON до очистки: {len(id_data)}")
                 keys_to_delete = [k for k in id_data.keys() if k.startswith(f"twitter_{official_username}_")]
                 # st.write(f"DEBUG: Найдено {len(keys_to_delete)} ключей для удаления: {keys_to_delete[:5]}")
@@ -422,8 +499,11 @@ if st.button("Load tweets"):
             except Exception as e:
                 st.warning(f"Ошибка при очистке JSON: {str(e)}. Продолжаем выполнение.")
 
+            # Выполняет поиск твитов по параметрам проекта
             tweets = search_tweets_by_query(project_name, official_username, project_name, project_symbol, start_date,
                                             limit, min_retweets, min_replies)
+
+            # Сохраняет найденные твиты в сессии
             st.session_state["tweets"] = tweets
             # st.write(f"Найдено {len(tweets)} уникальных твитов.")
 
@@ -439,9 +519,11 @@ if st.button("Load tweets"):
                         # st.write(f"DEBUG: Пропущен твит: отсутствует текст")
                         continue
 
+                    # Извлекает ID твита или генерирует новый, если ID отсутствует
                     tweet_id = tweet.get("id_str", str(uuid4()))
                     # st.write(f"DEBUG: Обработка твита с id: {tweet_id}, текст: {text[:30]}...")
 
+                    # Пропускает твит, если он уже существует в базе или в текущей сессии
                     if already_exists(tweet_id, namespace=namespace):
                         # st.write(f"DEBUG: Твит {tweet_id} уже существует в Pinecone, пропущен")
                         skipped += 1
@@ -450,10 +532,10 @@ if st.button("Load tweets"):
                         # st.write(f"DEBUG: Твит {tweet_id} уже обработан в текущей сессии, пропущен")
                         skipped += 1
                         continue
-                    existing_ids.add(tweet_id)
+                    existing_ids.add(tweet_id)  # Добавляет ID твита в множество обработанных
 
                     author_username = tweet.get("user", {}).get("screen_name", None)
-                    if not author_username:
+                    if not author_username: # Пропускает твит, если имя пользователя отсутствует
                         # st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует имя пользователя")
                         continue
 
@@ -466,11 +548,13 @@ if st.button("Load tweets"):
                     is_official = author_username.lower() == official_username.lower()
                     author_type = "official" if is_official else "external"
 
+                    # Извлекает метрики твита (ретвиты, ответы, просмотры)
                     public_metrics = tweet.get("public_metrics", {})
                     retweet_count = public_metrics.get("retweet_count", tweet.get("retweetCount", 0))
                     reply_count = public_metrics.get("reply_count", tweet.get("replyCount", 0))
                     view_count = public_metrics.get("view_count", tweet.get("viewCount", 0))
 
+                    # Создает объект Document для хранения твита и его метаданных в vector_store
                     doc = Document(
                         page_content=text,
                         metadata={
@@ -489,7 +573,7 @@ if st.button("Load tweets"):
                         }
                     )
 
-                    try:
+                    try:   # Добавляет твит в векторную базу
                         vector_store.add_documents([doc], ids=[tweet_id], namespace=namespace)
                         uploaded += 1
                         # st.write(f"DEBUG: Загружен твит: {tweet_id}")
@@ -512,7 +596,7 @@ if st.button("Load tweets"):
 
                 st.info(f"Загружено: {uploaded} твитов, пропущено (дубликаты): {skipped}")
 
-                try:
+                try:   # Проверяет наличие дубликатов в векторной базе
                     verify_docs = vector_store.similarity_search(
                         "", k=1000,
                         filter={
@@ -558,6 +642,7 @@ try:
                 ]
             }
 
+            # Выполняет поиск документов в базе, соответствующих выбранному проекту, с использованием фильтра
             docs = vector_store.similarity_search("", k=1000, filter=filter_dict)
             if not docs:
                 st.error("Нет данных для выбранного проекта в векторной базе.")
