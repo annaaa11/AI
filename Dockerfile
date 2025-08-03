@@ -1,10 +1,9 @@
-FROM python:3.9-slim
-
-# Устанавливаем Chrome и ChromeDriver
-RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-driver \
-    && rm -rf /var/lib/apt/lists/*
+# Устанавливаем ChromeDriver вручную для версии 138
+RUN wget -q https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/138.0.7204.183/linux64/chromedriver-linux64.zip \
+    && unzip chromedriver-linux64.zip \
+    && mv chromedriver-linux64/chromedriver /usr/bin/chromedriver \
+    && chmod +x /usr/bin/chromedriver \
+    && rm chromedriver-linux64.zip
 
 # Устанавливаем Python-зависимости
 WORKDIR /app

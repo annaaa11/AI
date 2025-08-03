@@ -12,7 +12,7 @@ from datetime import datetime
 # Конфигурация
 BOT_TOKEN = "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk"
 CHAT_ID = "6192278046"  # ID пользователя или канала
-CHECK_INTERVAL = 60  # Интервал проверки в секундах
+CHECK_INTERVAL = 15  # Интервал проверки в секундах
 PAGE_URLS = [
     "https://fluid.io/vaults/1/44/strategies/multiply",
     "https://fluid.io/vaults/1/127/strategies/multiply",
@@ -32,9 +32,16 @@ def send_to_telegram(message):
             "text": message
         }
         try:
-            requests.post(url_base, data=payload)
+            response = requests.post(url, data=payload)
+            response.raise_for_status()
+            print(f"Сообщение отправлено в Telegram: {message}")
         except Exception as e:
-            print(f"Ошибка при отправке в чат {chat_id}: {e}")
+            print(f"Ошибка отправки в Telegram: {e}")
+
+        # try:
+        #     requests.post(url_base, data=payload)
+        # except Exception as e:
+        #     print(f"Ошибка при отправке в чат {chat_id}: {e}")
 
 
 def parse_immediate_borrowable(page_url):
@@ -43,7 +50,7 @@ def parse_immediate_borrowable(page_url):
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')  # Необходимо для Render.com
     options.add_argument('--disable-dev-shm-usage')  # Необходимо для Render.com
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver = webdriver.Chrome(service=Service('/usr/bin/chromedriver'), options=options)
 
     try:
         driver.get(page_url)
@@ -85,7 +92,7 @@ def parse_immediate_borrowable(page_url):
                 prev_value = previous_values.get(page_url, None)
                 should_notify = False
 
-                if borrowable_value > 0:
+                if borrowable_value > 1000:
                     if prev_value is None or prev_value == 0:
                         should_notify = True  # Первая проверка или предыдущее значение 0
                     else:
@@ -116,7 +123,10 @@ def parse_immediate_borrowable(page_url):
         print(f"Ошибка на {page_url}: {e}")
         with open(f'page_source_{page_url.split("/")[-3]}.html', 'w', encoding='utf-8') as f:
             f.write(driver.page_source if 'driver' in locals() else '')
+        print(f"HTML страницы сохранён в page_source_{page_url.split('/')[-3]}.html")
 
+    finally:
+        driver.quit()
 
 
 def check_all_pages():
