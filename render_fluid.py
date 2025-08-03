@@ -92,7 +92,7 @@ def parse_immediate_borrowable(page_url):
                 prev_value = previous_values.get(page_url, None)
                 should_notify = False
 
-                if borrowable_value > 1000:
+                if borrowable_value > 1:
                     if prev_value is None or prev_value == 0:
                         should_notify = True  # Первая проверка или предыдущее значение 0
                     else:
