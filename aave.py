@@ -117,6 +117,7 @@ def get_transactions():
         return resp["result"]
     return []
 
+
 def send_to_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
