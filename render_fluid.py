@@ -22,20 +22,19 @@ PAGE_URLS = [
 # Словарь для хранения предыдущих значений
 previous_values = {}
 
+CHAT_IDS = [6192278046, 306507209]  # список id пользователей
 
 def send_to_telegram(message):
-    """Отправка сообщения в Telegram."""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message
-    }
-    try:
-        response = requests.post(url, data=payload)
-        response.raise_for_status()
-        print(f"Сообщение отправлено в Telegram: {message}")
-    except Exception as e:
-        print(f"Ошибка отправки в Telegram: {e}")
+    url_base = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    for chat_id in CHAT_IDS:
+        payload = {
+            "chat_id": chat_id,
+            "text": message
+        }
+        try:
+            requests.post(url_base, data=payload)
+        except Exception as e:
+            print(f"Ошибка при отправке в чат {chat_id}: {e}")
 
 
 def parse_immediate_borrowable(page_url):
