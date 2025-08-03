@@ -34,6 +34,7 @@ def get_token_transactions(address, count=100):
         print(f"Ошибка при получении транзакций: {e}")
     return []
 
+
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"}
