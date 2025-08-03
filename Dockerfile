@@ -1,3 +1,10 @@
+FROM python:3.9
+
+# Устанавливаем Chromium и необходимые зависимости
+RUN apt-get update && apt-get install -y \
+    chromium \
+    && rm -rf /var/lib/apt/lists/*
+
 # Устанавливаем ChromeDriver вручную для версии 138
 RUN wget -q https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/138.0.7204.183/linux64/chromedriver-linux64.zip \
     && unzip chromedriver-linux64.zip \
