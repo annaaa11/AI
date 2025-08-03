@@ -32,7 +32,7 @@ def send_to_telegram(message):
             "text": message
         }
         try:
-            response = requests.post(url, data=payload)
+            response = requests.post(url_base, data=payload)
             response.raise_for_status()
             print(f"Сообщение отправлено в Telegram: {message}")
         except Exception as e:
