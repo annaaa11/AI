@@ -2055,7 +2055,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6
 CHAT_IDS = [6192278046, 306507209]
 CHECK_INTERVAL = 300  # Интервал проверки в секундах
 MAX_PAIRS = 100  # Увеличено до 10
-MAX_ITERATION_TIME = 300  # Максимальное время на итерацию (5 минут)
+MAX_ITERATION_TIME = 600  # Максимальное время на итерацию (5 минут)
 
 
 @dataclass
