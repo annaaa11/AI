@@ -2044,6 +2044,7 @@ import os
 import logging
 import psutil
 import subprocess
+from urllib3.exceptions import NewConnectionError
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -2053,7 +2054,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk")
 CHAT_IDS = [6192278046, 306507209]
 CHECK_INTERVAL = 300  # Интервал проверки в секундах
-MAX_PAIRS = 5  # Уменьшено до 5 для минимизации памяти
+MAX_PAIRS = 100  # Увеличено до 10
 MAX_ITERATION_TIME = 300  # Максимальное время на итерацию (5 минут)
 
 
@@ -2287,13 +2288,6 @@ def calculate_optimal_investment(data, v1_model, v2_model, delta_time=86400.0):
         send_to_telegram(f"Ошибка парсинга данных для {data.get('Link')}: {e}")
         return None, None, None, None
 
-    if lend_apr <= 20 or utilization >= 1.01 or reserve_size == 0:
-        logger.info(
-            f"Пара отфильтрована: Lend APR={lend_apr}, Utilization={utilization}, Reserve Size={reserve_size}, Rate Type={rate_type}")
-        send_to_telegram(
-            f"Пара отфильтрована: {data.get('Link')} (Lend APR={lend_apr}%, Utilization={utilization * 100:.2f}%, Reserve Size={reserve_size})")
-        return None, None, None, None
-
     seconds_per_year = 365.24 * 24 * 3600
     max_investment = 200000
     step = 5000
@@ -2392,8 +2386,8 @@ def process_pairs():
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1280,720')
     options.add_argument('--disable-extensions')
-    options.add_argument('--disable-images')  # Отключение изображений для снижения памяти
-    options.add_argument('--blink-settings=imagesEnabled=false')  # Дополнительное отключение изображений
+    options.add_argument('--disable-images')  # Отключение изображений
+    options.add_argument('--blink-settings=imagesEnabled=false')
     options.binary_location = '/usr/bin/chromium'
 
     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
@@ -2431,7 +2425,10 @@ def process_pairs():
 
             pair_links = get_pair_links(driver)
             if driver:
-                driver.quit()
+                try:
+                    driver.quit()
+                except NewConnectionError:
+                    logger.info("Игнорируется NewConnectionError при закрытии WebDriver для списка пар")
                 kill_chromedriver()
                 logger.info(
                     f"WebDriver закрыт после получения списка пар, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
@@ -2503,8 +2500,11 @@ def process_pairs():
                         f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
                     logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
 
-                    # Закрытие WebDriver после каждой пары
-                    driver.quit()
+                    # Закрытие WebDriver
+                    try:
+                        driver.quit()
+                    except NewConnectionError:
+                        logger.info(f"Игнорируется NewConnectionError при закрытии WebDriver для {url}")
                     kill_chromedriver()
                     logger.info(
                         f"WebDriver закрыт после обработки {url}, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
@@ -2514,9 +2514,11 @@ def process_pairs():
             send_to_telegram(f"Ошибка при обработке пар: {type(e).__name__}: {e}")
 
         finally:
-            # Убедимся, что WebDriver закрыт
             if driver:
-                driver.quit()
+                try:
+                    driver.quit()
+                except NewConnectionError:
+                    logger.info("Игнорируется NewConnectionError при закрытии WebDriver в finally")
                 kill_chromedriver()
                 logger.info(
                     f"WebDriver закрыт в finally, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
