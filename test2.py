@@ -9,6 +9,7 @@ from typing import Tuple
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -299,16 +300,24 @@ def send_to_telegram(message):
 
 
 def process_pairs():
-    options = Options()
-    options.binary_location = "/usr/bin/chromium"
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
+    # options = Options()
+    # options.binary_location = "/usr/bin/chromium"
+    # options.add_argument('--headless')
+    # options.add_argument('--no-sandbox')
+    # options.add_argument('--disable-dev-shm-usage')
 
-    driver = webdriver.Chrome(
-        executable_path="/usr/bin/chromedriver",
-        options=options
-    )
+    options = uc.ChromeOptions()
+    options.headless = True
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+
+    #driver = uc.Chrome(options=options)
+    driver = uc.Chrome(version_main=138, options=options)
+
+    # driver = webdriver.Chrome(
+    #     executable_path="/usr/bin/chromedriver",
+    #     options=options
+    # )
 
     v1_model = TimeWeightedVariableInterestRate(TimeWeightedInterestRateParams())
     v2_model = VariableInterestRate(InterestRateParams())
