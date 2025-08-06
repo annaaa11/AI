@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     libxtst6 \
     libxss1 \
+    wget \
+    unzip \
     && rm -rf /var/lib/apt/lists/* \
     && which chromium && echo "Chromium found at $(which chromium)" || echo "Chromium not found"
 
