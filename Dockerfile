@@ -34,4 +34,4 @@ RUN pip install --no-cache-dir -r req.txt
 ENV PYTHONUNBUFFERED=1
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 
-CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 600 frax_land:app"]
+CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:10000 --workers 1 --timeout 600 frax_land:app"]
