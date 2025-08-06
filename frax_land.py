@@ -412,7 +412,7 @@ import shutil
 # Настройки Telegram
 BOT_TOKEN = "8263165108:AAFJIRRFpTt2_f6xtCsVIa5e2ksa23PBsCY"  # Получаем из переменной окружения
 CHAT_IDS = [6192278046, 306507209]  # Список ID пользователей
-CHECK_INTERVAL = 60*60  # Секунд между проверками
+CHECK_INTERVAL = 60  # Секунд между проверками
 CHROMEDRIVER_PATH = "/usr/local/bin/chromedriver"  # Путь для chromedriver в Render
 
 app = Flask(__name__)
