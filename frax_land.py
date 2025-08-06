@@ -390,9 +390,27 @@ from datetime import datetime, timezone
 from flask import Flask
 import os
 
-# Настройки Telegram
 
-BOT_TOKEN = "8218685044:AAESCtKJJEi0guAAH4iOtt_haD7LL_Ukow8"  # Замените на ваш токен бота
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from dataclasses import dataclass
+from typing import Tuple
+from tqdm import tqdm
+import re
+import requests
+import time
+import threading
+from datetime import datetime, timezone
+from flask import Flask
+import os
+import shutil
+
+# Настройки Telegram
+BOT_TOKEN = "8263165108:AAFJIRRFpTt2_f6xtCsVIa5e2ksa23PBsCY"  # Получаем из переменной окружения
 CHAT_IDS = [6192278046, 306507209]  # Список ID пользователей
 CHECK_INTERVAL = 60*60  # Секунд между проверками
 CHROMEDRIVER_PATH = "/usr/local/bin/chromedriver"  # Путь для chromedriver в Render

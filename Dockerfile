@@ -1,22 +1,27 @@
 FROM python:3.9-slim
 
-# Install dependencies
+# Устанавливаем зависимости для Chrome и chromedriver
 RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-driver \
-    && rm -rf /var/lib/apt/lists/*
+chromium \
+chromium-driver \
+libglib2.0-0 \
+libnss3 \
+libgconf-2-4 \
+libfontconfig1 \
+&& rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Copy project files
+# Копируем файлы проекта
 COPY . .
 
-# Install Python dependencies
+# Устанавливаем Python-зависимости
 RUN pip install --no-cache-dir -r req.txt
 
-# Set environment variables
+# Устанавливаем переменные окружения
 ENV PYTHONUNBUFFERED=1
+ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
 
-# Run the application
-CMD ["python", "frax_land.py"]
+# Запускаем приложение с gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--workers", "1", "--timeout", "120", "frax_land:app"]
