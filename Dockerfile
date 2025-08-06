@@ -1,33 +1,24 @@
-FROM python:3.9-slim
+FROM python:3.9
 
-# Устанавливаем зависимости для Chrome
+# Устанавливаем Chromium и необходимые зависимости
 RUN apt-get update && apt-get install -y \
     chromium \
-    libglib2.0-0 \
-    libnss3 \
-    libgconf-2-4 \
-    libfontconfig1 \
-    libx11-6 \
-    libx11-xcb1 \
-    libxi6 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libxtst6 \
-    libxss1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Устанавливаем рабочую директорию
-WORKDIR /app
-
-# Копируем файлы проекта
-COPY . .
+# Устанавливаем ChromeDriver вручную для версии 138
+RUN wget -q https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/138.0.7204.183/linux64/chromedriver-linux64.zip \
+    && unzip chromedriver-linux64.zip \
+    && mv chromedriver-linux64/chromedriver /usr/bin/chromedriver \
+    && chmod +x /usr/bin/chromedriver \
+    && rm chromedriver-linux64.zip
 
 # Устанавливаем Python-зависимости
+WORKDIR /app
+COPY req.txt .
 RUN pip install --no-cache-dir -r req.txt
 
-# Устанавливаем переменные окружения
-ENV PYTHONUNBUFFERED=1
+# Копируем код
+COPY frax_land.py .
 
-# Запускаем приложение с gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:10000", "--workers", "1", "--timeout", "300", "frax_land:app"]
+# Запускаем приложение
+CMD ["python", "frax_land.py"]
