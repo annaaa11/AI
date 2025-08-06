@@ -12,7 +12,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import chromedriver_autoinstaller
+
+
 
 # Настройки Telegram
 BOT_TOKEN = "8218685044:AAESCtKJJEi0guAAH4iOtt_haD7LL_Ukow8"  # Замените на ваш токен бота
@@ -298,14 +299,16 @@ def send_to_telegram(message):
 
 
 def process_pairs():
-    chromedriver_autoinstaller.install()
-
     options = Options()
+    options.binary_location = "/usr/bin/chromium"
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
 
-    driver = webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(
+        executable_path="/usr/bin/chromedriver",
+        options=options
+    )
 
     v1_model = TimeWeightedVariableInterestRate(TimeWeightedInterestRateParams())
     v2_model = VariableInterestRate(InterestRateParams())
