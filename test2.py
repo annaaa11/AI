@@ -311,8 +311,11 @@ def process_pairs():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
-    #driver = uc.Chrome(options=options)
+    options.binary_location = "/path/to/chrome_or_chromium_binary"
+
     driver = uc.Chrome(version_main=138, options=options)
+
+    #driver = uc.Chrome(options=options)
 
     # driver = webdriver.Chrome(
     #     executable_path="/usr/bin/chromedriver",
