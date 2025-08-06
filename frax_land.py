@@ -1595,9 +1595,7 @@ from tqdm import tqdm
 import re
 import requests
 import time
-import threading
 from datetime import datetime, timezone
-from flask import Flask
 import os
 import logging
 import psutil
@@ -1607,12 +1605,10 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # Настройки Telegram
-BOT_TOKEN = "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk")
 CHAT_IDS = [6192278046, 306507209]
-CHECK_INTERVAL = 120  # Увеличено до 120 секунд для снижения нагрузки
-MAX_PAIRS = 3  # Ограничение количества пар для теста
-
-app = Flask(__name__)
+CHECK_INTERVAL = 300  # Интервал проверки в секундах
+MAX_PAIRS = 1  # Ограничение количества пар для теста
 
 
 @dataclass
@@ -1750,14 +1746,14 @@ def get_pair_links(driver, max_retries=3):
     for attempt in range(max_retries):
         try:
             # Проверка сетевой доступности
-            response = requests.get(url, timeout=60)
+            response = requests.get(url, timeout=30)
             logger.info(f"Статус HTTP-запроса к {url}: {response.status_code}")
 
             # Загрузка страницы в WebDriver
             driver.get(url)
 
             # Ожидание появления ссылок
-            WebDriverWait(driver, 30).until(
+            WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/fraxlend/pairs/']"))
             )
             elems = driver.find_elements(By.CSS_SELECTOR, "a[href*='/fraxlend/pairs/']")
@@ -1937,23 +1933,6 @@ def process_pairs():
     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
     logger.info(f"Используемый путь к chromedriver: {chromedriver_path}")
 
-    driver = None
-    for attempt in range(3):
-        try:
-            logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver")
-            driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
-            logger.info("WebDriver успешно инициализирован")
-            break
-        except Exception as e:
-            logger.error(f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver: {type(e).__name__}: {e}")
-            if attempt == 2:
-                logger.error("Не удалось инициализировать WebDriver после 3 попыток.")
-                send_to_telegram("Ошибка: Не удалось инициализировать WebDriver. Проверьте конфигурацию.")
-                return
-            time.sleep(2)
-    else:
-        return
-
     v1_params = TimeWeightedInterestRateParams()
     v2_params = InterestRateParams()
     v1_model = TimeWeightedVariableInterestRate(v1_params)
@@ -1962,9 +1941,26 @@ def process_pairs():
     processed_urls = set()
 
     while True:
+        driver = None
         try:
             logger.info(
                 f"Начало парсинга пар, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+
+            # Инициализация WebDriver
+            for attempt in range(3):
+                try:
+                    logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver")
+                    driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+                    logger.info("WebDriver успешно инициализирован")
+                    break
+                except Exception as e:
+                    logger.error(f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver: {type(e).__name__}: {e}")
+                    if attempt == 2:
+                        logger.error("Не удалось инициализировать WebDriver после 3 попыток.")
+                        send_to_telegram("Ошибка: Не удалось инициализировать WebDriver. Проверьте конфигурацию.")
+                        return
+                    time.sleep(2)
+
             pair_links = get_pair_links(driver)
             logger.info(f"Найдено пар: {len(pair_links)}")
 
@@ -2014,54 +2010,19 @@ def process_pairs():
             logger.error(f"Ошибка обработки пар: {type(e).__name__}: {e}")
             send_to_telegram(f"Ошибка при обработке пар: {type(e).__name__}: {e}")
 
-        # Закрытие WebDriver и повторное открытие для следующей итерации
-        if driver:
-            driver.quit()
-            logger.info(f"WebDriver закрыт, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
-            time.sleep(2)
-            # Повторная инициализация WebDriver
-            for attempt in range(3):
-                try:
-                    logger.info(f"Попытка {attempt + 1}/3: Повторная инициализация WebDriver")
-                    driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
-                    logger.info("WebDriver успешно переинициализирован")
-                    break
-                except Exception as e:
-                    logger.error(
-                        f"Попытка {attempt + 1}/3: Ошибка повторной инициализации WebDriver: {type(e).__name__}: {e}")
-                    if attempt == 2:
-                        logger.error("Не удалось переинициализировать WebDriver. Прекращаем выполнение.")
-                        send_to_telegram("Ошибка: Не удалось переинициализировать WebDriver.")
-                        return
-                    time.sleep(2)
-
-        logger.info(f"Ожидание {CHECK_INTERVAL} секунд перед следующей проверкой")
-        time.sleep(CHECK_INTERVAL)
+        finally:
+            # Закрытие WebDriver
+            if driver:
+                driver.quit()
+                logger.info(f"WebDriver закрыт, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+            time.sleep(CHECK_INTERVAL)
 
 
-@app.route("/")
-def home():
-    return "Parser is running!"
-
-
-@app.route("/status")
-def status():
-    return {"status": "ok", "memory_mb": psutil.Process().memory_info().rss / 1024 / 1024}
-
-
-def run_background():
-    logger.info("Запуск фонового потока для парсинга")
-    try:
-        thread = threading.Thread(target=process_pairs)
-        thread.daemon = True
-        thread.start()
-        logger.info("Фоновый поток успешно запущен")
-    except Exception as e:
-        logger.error(f"Ошибка запуска фонового потока: {type(e).__name__}: {e}")
-        send_to_telegram(f"Ошибка запуска фонового потока: {type(e).__name__}: {e}")
+def main():
+    logger.info("Запуск Background Worker")
+    send_to_telegram("Тест: Background Worker запущен")
+    process_pairs()
 
 
 if __name__ == "__main__":
-    logger.info("Запуск приложения локально")
-    run_background()
-    app.run(host="0.0.0.0", port=10000)
+    main()

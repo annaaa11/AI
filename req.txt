@@ -1,7 +1,5 @@
 selenium==4.15.2
 requests==2.31.0
-flask==2.3.3
 tqdm==4.66.1
-gunicorn==21.2.0
 webdriver-manager==4.0.2
 psutil==5.9.5
