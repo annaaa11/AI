@@ -2051,7 +2051,7 @@ logger = logging.getLogger(__name__)
 # Настройки Telegram
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk")
 CHAT_IDS = [6192278046, 306507209]
-CHECK_INTERVAL = 300  # Интервал проверки в секундах
+CHECK_INTERVAL = 60*20  # Интервал проверки в секундах
 MAX_PAIRS = 100  # Ограничение количества пар для теста
 
 
