@@ -10,7 +10,7 @@ from datetime import datetime
 
 
 # Конфигурация
-BOT_TOKEN = "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk"
+BOT_TOKEN = "8263165108:AAFJIRRFpTt2_f6xtCsVIa5e2ksa23PBsCY"
 CHAT_ID = "6192278046"  # ID пользователя или канала
 CHECK_INTERVAL = 15  # Интервал проверки в секундах
 PAGE_URLS = [
