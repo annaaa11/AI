@@ -2043,6 +2043,7 @@ from datetime import datetime, timezone
 import os
 import logging
 import psutil
+import subprocess
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -2051,9 +2052,9 @@ logger = logging.getLogger(__name__)
 # Настройки Telegram
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk")
 CHAT_IDS = [6192278046, 306507209]
-CHECK_INTERVAL = 600  # Интервал проверки в секундах
-MAX_PAIRS = 100  # Увеличено до 20 для теста
-MAX_ITERATION_TIME = 600  # Максимальное время на итерацию (5 минут)
+CHECK_INTERVAL = 300  # Интервал проверки в секундах
+MAX_PAIRS = 5  # Уменьшено до 5 для минимизации памяти
+MAX_ITERATION_TIME = 300  # Максимальное время на итерацию (5 минут)
 
 
 @dataclass
@@ -2286,7 +2287,6 @@ def calculate_optimal_investment(data, v1_model, v2_model, delta_time=86400.0):
         send_to_telegram(f"Ошибка парсинга данных для {data.get('Link')}: {e}")
         return None, None, None, None
 
-    # Включён фильтр Lend APR
     if lend_apr <= 20 or utilization >= 1.01 or reserve_size == 0:
         logger.info(
             f"Пара отфильтрована: Lend APR={lend_apr}, Utilization={utilization}, Reserve Size={reserve_size}, Rate Type={rate_type}")
@@ -2369,6 +2369,17 @@ def send_to_telegram(message):
             logger.error(f"Ошибка отправки в Telegram для chat_id {chat_id}: {type(e).__name__}: {e}")
 
 
+def kill_chromedriver():
+    """Принудительно завершает все процессы chromedriver"""
+    try:
+        subprocess.run(['pkill', '-f', 'chromedriver'], check=True)
+        logger.info("Все процессы chromedriver завершены")
+    except subprocess.CalledProcessError:
+        logger.info("Процессы chromedriver не найдены")
+    except Exception as e:
+        logger.error(f"Ошибка при завершении chromedriver: {type(e).__name__}: {e}")
+
+
 def process_pairs():
     logger.info(
         f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
@@ -2381,7 +2392,8 @@ def process_pairs():
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1280,720')
     options.add_argument('--disable-extensions')
-    # Удалена опция --disable-javascript, так как сайт может зависеть от JavaScript
+    options.add_argument('--disable-images')  # Отключение изображений для снижения памяти
+    options.add_argument('--blink-settings=imagesEnabled=false')  # Дополнительное отключение изображений
     options.binary_location = '/usr/bin/chromium'
 
     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
@@ -2395,18 +2407,19 @@ def process_pairs():
     processed_urls = set()
 
     while True:
-        driver = None
         iteration_start_time = time.time()
         peak_memory = psutil.Process().memory_info().rss / 1024 / 1024
         try:
             logger.info(
                 f"Начало парсинга пар, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
+            # Инициализация WebDriver для получения списка пар
+            driver = None
             for attempt in range(3):
                 try:
-                    logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver")
+                    logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver для списка пар")
                     driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
-                    logger.info("WebDriver успешно инициализирован")
+                    logger.info("WebDriver успешно инициализирован для списка пар")
                     break
                 except Exception as e:
                     logger.error(f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver: {type(e).__name__}: {e}")
@@ -2417,8 +2430,13 @@ def process_pairs():
                     time.sleep(2)
 
             pair_links = get_pair_links(driver)
-            logger.info(f"Найдено пар: {len(pair_links)}")
+            if driver:
+                driver.quit()
+                kill_chromedriver()
+                logger.info(
+                    f"WebDriver закрыт после получения списка пар, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
+            logger.info(f"Найдено пар: {len(pair_links)}")
             if not pair_links:
                 logger.warning("Список пар пуст. Пропускаем итерацию.")
                 send_to_telegram("Предупреждение: Список пар пуст. Проверьте сайт или селектор.")
@@ -2437,50 +2455,75 @@ def process_pairs():
                     logger.debug(f"Пропущена пара (уже обработана): {url}")
                     continue
 
-                data = fetch_metrics(driver, url)
-                optimal_investment, max_profit, optimal_lend_apr, optimal_utilization = calculate_optimal_investment(
-                    data, v1_model, v2_model)
+                # Инициализация WebDriver для каждой пары
+                driver = None
+                for attempt in range(3):
+                    try:
+                        logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver для {url}")
+                        driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+                        logger.info(f"WebDriver успешно инициализирован для {url}")
+                        break
+                    except Exception as e:
+                        logger.error(
+                            f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver для {url}: {type(e).__name__}: {e}")
+                        if attempt == 2:
+                            logger.error(f"Не удалось инициализировать WebDriver для {url} после 3 попыток.")
+                            send_to_telegram(f"Ошибка: Не удалось инициализировать WebDriver для {url}.")
+                            break
+                        time.sleep(2)
 
-                rate_type = data.get("Rate Type", "N/A")
-                if (optimal_investment is not None) and data.get("Lend APR", "0") != "N/A" and data.get(
-                        "Utilization Rate", "0") != "N/A":
-                    timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-                    message = (
-                        f"📄 Пара: {url} ({rate_type})\n"
-                        f"Timestamp (UTC): {timestamp} +3 часа\n"
-                        f"Старая Lend APR: {data.get('Lend APR')}\n"
-                        f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%\n"
-                        f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
-                        f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
-                        f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
-                        f"Available Liquidity: {data.get('Available Liquidity')}\n"
-                        f"Utilization Rate: {data.get('Utilization Rate')}\n"
-                        f"Borrow APR: {data.get('Borrow APR')}\n"
-                        f"Reserve Size: {data.get('Reserve Size')}\n"
-                        f"Rate Type: {rate_type}"
-                    )
-                    send_to_telegram(message)
-                    processed_urls.add(url)
+                if driver:
+                    data = fetch_metrics(driver, url)
+                    optimal_investment, max_profit, optimal_lend_apr, optimal_utilization = calculate_optimal_investment(
+                        data, v1_model, v2_model)
 
-                peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
-                logger.info(f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
-                logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
-                driver.execute_script("window.localStorage.clear();")
-                driver.execute_script("window.sessionStorage.clear();")
-                time.sleep(0.5)
+                    rate_type = data.get("Rate Type", "N/A")
+                    if (optimal_investment is not None) and data.get("Lend APR", "0") != "N/A" and data.get(
+                            "Utilization Rate", "0") != "N/A":
+                        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                        message = (
+                            f"📄 Пара: {url} ({rate_type})\n"
+                            f"Timestamp (UTC): {timestamp} +3 часа\n"
+                            f"Старая Lend APR: {data.get('Lend APR')}\n"
+                            f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%\n"
+                            f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
+                            f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
+                            f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
+                            f"Available Liquidity: {data.get('Available Liquidity')}\n"
+                            f"Utilization Rate: {data.get('Utilization Rate')}\n"
+                            f"Borrow APR: {data.get('Borrow APR')}\n"
+                            f"Reserve Size: {data.get('Reserve Size')}\n"
+                            f"Rate Type: {rate_type}"
+                        )
+                        send_to_telegram(message)
+                        processed_urls.add(url)
+
+                    peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
+                    logger.info(
+                        f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+                    logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
+
+                    # Закрытие WebDriver после каждой пары
+                    driver.quit()
+                    kill_chromedriver()
+                    logger.info(
+                        f"WebDriver закрыт после обработки {url}, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
         except Exception as e:
             logger.error(f"Ошибка обработки пар: {type(e).__name__}: {e}")
             send_to_telegram(f"Ошибка при обработке пар: {type(e).__name__}: {e}")
 
         finally:
+            # Убедимся, что WebDriver закрыт
             if driver:
                 driver.quit()
-                logger.info(f"WebDriver закрыт, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
-                logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
+                kill_chromedriver()
+                logger.info(
+                    f"WebDriver закрыт в finally, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
             elapsed_time = time.time() - iteration_start_time
             logger.info(f"Итерация завершена за {elapsed_time:.2f} секунд")
+            logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
             logger.info(f"Ожидание {CHECK_INTERVAL} секунд перед следующей итерацией")
             remaining_time = CHECK_INTERVAL
             while remaining_time > 0:
