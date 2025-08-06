@@ -800,7 +800,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # Настройки Telegram
-BOT_TOKEN = "8263165108:AAFJIRRFpTt2_f6xtCsVIa5e2ksa23PBsCY"  # Получаем из переменной окружения
+BOT_TOKEN = "8218685044:AAESCtKJJEi0guAAH4iOtt_haD7LL_Ukow8"  # Получаем из переменной окружения
 CHAT_IDS = [6192278046, 306507209]  # Список ID пользователей
 CHECK_INTERVAL = 60  # Секунд между проверками
 CHROMEDRIVER_PATH = "/usr/bin/chromedriver"  # Динамический поиск chromedriver
