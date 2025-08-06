@@ -2471,21 +2471,48 @@ def process_pairs():
 
                 if driver:
                     data = fetch_metrics(driver, url)
+
+                    # Проверка условий фильтрации
+                    try:
+                        lend_apr = float(data.get("Lend APR", "0").replace("%", "").strip())
+                        utilization_rate = float(data.get("Utilization Rate", "0").replace("%", "").strip())
+                        reserve_size = parse_dollar_amount(data.get("Reserve Size", "0"), is_reserve_size=True)
+                    except Exception as e:
+                        logger.error(f"Ошибка парсинга данных для фильтрации {url}: {e}")
+                        send_to_telegram(f"Ошибка парсинга данных для фильтрации {url}: {e}")
+                        continue
+
+                    if lend_apr <= 20 or utilization_rate >= 101 or reserve_size == 0:
+                        logger.info(
+                            f"Пара отфильтрована: {url} (Lend APR={lend_apr}, Utilization Rate={utilization_rate}, Reserve Size={reserve_size})")
+                        continue
+
                     optimal_investment, max_profit, optimal_lend_apr, optimal_utilization = calculate_optimal_investment(
                         data, v1_model, v2_model)
 
                     rate_type = data.get("Rate Type", "N/A")
-                    if (optimal_investment is not None) and data.get("Lend APR", "0") != "N/A" and data.get(
-                            "Utilization Rate", "0") != "N/A":
+                    if optimal_investment is not None:
                         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                         message = (
                             f"📄 Пара: {url} ({rate_type})\n"
                             f"Timestamp (UTC): {timestamp} +3 часа\n"
                             f"Старая Lend APR: {data.get('Lend APR')}\n"
-                            f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%\n"
-                            f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
-                            f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
-                            f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
+                        )
+                        if rate_type == "Variable V2" and optimal_investment is not None:
+                            message += (
+                                f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%\n"
+                                f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
+                                f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
+                                f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
+                            )
+                        else:
+                            message += (
+                                f"Новая оптимальная Lend APR: не рассчитано\n"
+                                f"Оптимальная сумма для вложения: не рассчитано\n"
+                                f"Максимальный доход за 1 день: не рассчитано\n"
+                                f"Новая ставка утилизации: не рассчитано\n"
+                            )
+                        message += (
                             f"Available Liquidity: {data.get('Available Liquidity')}\n"
                             f"Utilization Rate: {data.get('Utilization Rate')}\n"
                             f"Borrow APR: {data.get('Borrow APR')}\n"
@@ -2494,6 +2521,8 @@ def process_pairs():
                         )
                         send_to_telegram(message)
                         processed_urls.add(url)
+                    else:
+                        logger.info(f"Пара отфильтрована: {url} (не найдено допустимых вложений)")
 
                     peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
                     logger.info(
@@ -2535,7 +2564,6 @@ def process_pairs():
                 peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
                 logger.info(
                     f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
-
 
 def main():
     logger.info("Запуск Background Worker")
