@@ -2051,8 +2051,9 @@ logger = logging.getLogger(__name__)
 # Настройки Telegram
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk")
 CHAT_IDS = [6192278046, 306507209]
-CHECK_INTERVAL = 60*20  # Интервал проверки в секундах
-MAX_PAIRS = 100  # Ограничение количества пар для теста
+CHECK_INTERVAL = 300  # Интервал проверки в секундах
+MAX_PAIRS = 10  # Ограничение до 10 пар для снижения нагрузки
+MAX_ITERATION_TIME = 600  # Максимальное время на итерацию (5 минут)
 
 
 @dataclass
@@ -2190,14 +2191,14 @@ def get_pair_links(driver, max_retries=3):
     for attempt in range(max_retries):
         try:
             # Проверка сетевой доступности
-            response = requests.get(url, timeout=30)
+            response = requests.get(url, timeout=10)  # Уменьшен тайм-аут
             logger.info(f"Статус HTTP-запроса к {url}: {response.status_code}")
 
             # Загрузка страницы в WebDriver
             driver.get(url)
 
             # Ожидание появления ссылок
-            WebDriverWait(driver, 20).until(
+            WebDriverWait(driver, 10).until(  # Уменьшен тайм-аут
                 EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/fraxlend/pairs/']"))
             )
             elems = driver.find_elements(By.CSS_SELECTOR, "a[href*='/fraxlend/pairs/']")
@@ -2205,13 +2206,12 @@ def get_pair_links(driver, max_retries=3):
             for e in elems:
                 href = e.get_attribute("href")
                 if href and '/fraxlend/pairs/' in href:
-                    # Приведение относительных ссылок к абсолютным
                     if not href.startswith('http'):
                         href = f"https://facts.frax.finance{href}"
                     if href.startswith("https://facts.frax.finance/fraxlend/pairs/"):
                         links.add(href)
             logger.info(f"Найдено ссылок на пары: {len(links)}")
-            return list(links)[:MAX_PAIRS]  # Ограничение количества пар
+            return list(links)[:MAX_PAIRS]
 
         except EC.TimeoutException as e:
             logger.error(f"Попытка {attempt + 1}/{max_retries}: Тайм-аут при ожидании элементов на {url}: {e}")
@@ -2219,7 +2219,7 @@ def get_pair_links(driver, max_retries=3):
                 logger.error("Не удалось загрузить ссылки после всех попыток.")
                 send_to_telegram("Ошибка: Не удалось загрузить ссылки на пары.")
                 return []
-            time.sleep(5)
+            time.sleep(2)
 
         except Exception as e:
             logger.error(f"Попытка {attempt + 1}/{max_retries}: Ошибка при получении ссылок: {type(e).__name__}: {e}")
@@ -2227,16 +2227,22 @@ def get_pair_links(driver, max_retries=3):
                 logger.error("Не удалось загрузить ссылки после всех попыток.")
                 send_to_telegram("Ошибка: Не удалось загрузить ссылки на пары.")
                 return []
-            time.sleep(5)
+            time.sleep(2)
 
     return []
 
 
-def fetch_metrics(driver, url):
+def fetch_metrics(driver, url, timeout=10):
     logger.info(f"Загрузка страницы: {url}")
-    driver.get(url)
     try:
-        WebDriverWait(driver, 20).until(
+        start_time = time.time()
+        # Мониторинг пиковой памяти
+        process = psutil.Process()
+        peak_memory = process.memory_info().rss / 1024 / 1024
+        driver.get(url)
+
+        # Ожидание элемента с уменьшенным тайм-аутом
+        WebDriverWait(driver, timeout).until(
             EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Available Liquidity')]")))
         labels = ["Available Liquidity", "Utilization Rate", "Lend APR", "Borrow APR", "Reserve Size", "Rate Type"]
         data = {"Link": url}
@@ -2247,9 +2253,13 @@ def fetch_metrics(driver, url):
             except:
                 data[label] = "N/A"
         logger.info(f"Данные для {url}: {data}")
+        logger.info(f"Время обработки {url}: {time.time() - start_time:.2f} секунд")
+        peak_memory = max(peak_memory, process.memory_info().rss / 1024 / 1024)
+        logger.info(f"Пиковая память во время обработки {url}: {peak_memory:.2f} MB")
         return data
     except Exception as e:
-        logger.error(f"Ошибка при загрузке данных для {url}: {e}")
+        logger.error(f"Ошибка при загрузке данных для {url}: {type(e).__name__}: {e}")
+        send_to_telegram(f"Ошибка при загрузке данных для {url}: {type(e).__name__}: {e}")
         return {"Link": url, "Available Liquidity": "N/A", "Utilization Rate": "N/A", "Lend APR": "N/A",
                 "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A"}
 
@@ -2283,10 +2293,11 @@ def calculate_optimal_investment(data, v1_model, v2_model, delta_time=86400.0):
         logger.error(f"Ошибка парсинга данных: {e}")
         return None, None, None, None
 
-    if lend_apr <= 20 or utilization >= 1.01 or reserve_size == 0:
-        logger.info(
-            f"Пара отфильтрована: Lend APR={lend_apr}, Utilization={utilization}, Reserve Size={reserve_size}, Rate Type={rate_type}")
-        return None, None, None, None
+    # Временно отключен фильтр для теста
+    # if lend_apr <= 20 or utilization >= 1.01 or reserve_size == 0:
+    #     logger.info(
+    #         f"Пара отфильтрована: Lend APR={lend_apr}, Utilization={utilization}, Reserve Size={reserve_size}, Rate Type={rate_type}")
+    #     return None, None, None, None
 
     seconds_per_year = 365.24 * 24 * 3600
     max_investment = 200000
@@ -2352,7 +2363,7 @@ def send_to_telegram(message):
             "text": message
         }
         try:
-            response = requests.post(url, data=payload)
+            response = requests.post(url, data=payload, timeout=10)
             if response.status_code != 200:
                 logger.error(f"Ошибка отправки в Telegram для chat_id {chat_id}: {response.text}")
             else:
@@ -2371,7 +2382,9 @@ def process_pairs():
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
-    options.add_argument('--window-size=1920,1080')
+    options.add_argument('--window-size=1280,720')  # Уменьшен размер окна
+    options.add_argument('--disable-extensions')  # Отключение расширений
+    options.add_argument('--disable-javascript')  # Пробуем отключить JavaScript
     options.binary_location = '/usr/bin/chromium'
 
     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
@@ -2386,6 +2399,8 @@ def process_pairs():
 
     while True:
         driver = None
+        iteration_start_time = time.time()
+        peak_memory = psutil.Process().memory_info().rss / 1024 / 1024
         try:
             logger.info(
                 f"Начало парсинга пар, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
@@ -2415,6 +2430,13 @@ def process_pairs():
                 continue
 
             for url in tqdm(pair_links, desc="Обработка пар"):
+                if time.time() - iteration_start_time > MAX_ITERATION_TIME:
+                    logger.warning(
+                        f"Превышено максимальное время итерации ({MAX_ITERATION_TIME} секунд). Пропускаем оставшиеся пары.")
+                    send_to_telegram(
+                        f"Превышено время итерации ({MAX_ITERATION_TIME} секунд). Пропущено {len(pair_links) - pair_links.index(url)} пар.")
+                    break
+
                 if url in processed_urls:
                     logger.debug(f"Пропущена пара (уже обработана): {url}")
                     continue
@@ -2444,11 +2466,13 @@ def process_pairs():
                     send_to_telegram(message)
                     processed_urls.add(url)
 
-                # Освобождение памяти после обработки каждой пары
+                # Освобождение памяти
+                peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
                 logger.info(f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+                logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
                 driver.execute_script("window.localStorage.clear();")
                 driver.execute_script("window.sessionStorage.clear();")
-                time.sleep(1)  # Короткая пауза для снижения нагрузки
+                time.sleep(0.5)  # Уменьшена пауза
 
         except Exception as e:
             logger.error(f"Ошибка обработки пар: {type(e).__name__}: {e}")
@@ -2459,13 +2483,20 @@ def process_pairs():
             if driver:
                 driver.quit()
                 logger.info(f"WebDriver закрыт, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+                logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
 
-            # Периодический вывод в логи во время ожидания
+            # Периодический вывод в логи
+            elapsed_time = time.time() - iteration_start_time
+            logger.info(f"Итерация завершена за {elapsed_time:.2f} секунд")
             logger.info(f"Ожидание {CHECK_INTERVAL} секунд перед следующей итерацией")
-            for i in range(CHECK_INTERVAL // 60):
-                time.sleep(60)
+            remaining_time = CHECK_INTERVAL
+            while remaining_time > 0:
+                sleep_time = min(30, remaining_time)  # Уменьшено до 30 секунд
+                time.sleep(sleep_time)
+                remaining_time -= sleep_time
+                peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
                 logger.info(
-                    f"Ожидание, осталось {CHECK_INTERVAL - (i + 1) * 60} секунд, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+                    f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
 
 
 def main():
