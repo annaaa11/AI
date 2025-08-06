@@ -1607,11 +1607,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # Настройки Telegram
-BOT_TOKEN = "8218685044:AAESCtKJJEi0guAAH4iOtt_haD7LL_Ukow8"
+BOT_TOKEN = "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk"
 CHAT_IDS = [6192278046, 306507209]
-CHECK_INTERVAL = 30  # Увеличено до 30 секунд для снижения нагрузки
+CHECK_INTERVAL = 120  # Увеличено до 120 секунд для снижения нагрузки
+MAX_PAIRS = 3  # Ограничение количества пар для теста
 
 app = Flask(__name__)
+
 
 @dataclass
 class InterestRateParams:
@@ -1649,26 +1651,26 @@ class VariableInterestRate:
         old_borrow_apr = old_lend_apr / old_utilization if old_utilization != 0 else 0
         old_borrow_rate_per_sec = old_borrow_apr / (seconds_per_year * 100)
         term = (
-            old_borrow_rate_per_sec - self.params.zero_util_rate) * self.params.vertex_util / old_utilization if old_utilization != 0 else 0
+                       old_borrow_rate_per_sec - self.params.zero_util_rate) * self.params.vertex_util / old_utilization if old_utilization != 0 else 0
         vertex_interest = term + self.params.zero_util_rate
         full_utilization_interest = ((
-            vertex_interest - self.params.zero_util_rate) / self.params.vertex_rate_percent) + self.params.zero_util_rate
+                                             vertex_interest - self.params.zero_util_rate) / self.params.vertex_rate_percent) + self.params.zero_util_rate
         return full_utilization_interest
 
     def get_full_utilization_interest(self, delta_time: float, utilization: float,
                                       full_utilization_interest: float) -> float:
         if utilization < self.params.min_target_util:
             delta_utilization = ((
-                self.params.min_target_util - utilization) * self.params.rate_precision) / self.params.min_target_util
+                                         self.params.min_target_util - utilization) * self.params.rate_precision) / self.params.min_target_util
             decay_growth = (self.params.rate_half_life * 1e36) + (delta_utilization * delta_utilization * delta_time)
             new_full_utilization_interest = (full_utilization_interest * (
-                self.params.rate_half_life * 1e36)) / decay_growth
+                    self.params.rate_half_life * 1e36)) / decay_growth
         elif utilization > self.params.max_target_util:
             delta_utilization = ((utilization - self.params.max_target_util) * self.params.rate_precision) / (
-                self.params.util_precision - self.params.max_target_util)
+                    self.params.util_precision - self.params.max_target_util)
             decay_growth = (self.params.rate_half_life * 1e36) + (delta_utilization * delta_utilization * delta_time)
             new_full_utilization_interest = (full_utilization_interest * decay_growth) / (
-                self.params.rate_half_life * 1e36)
+                    self.params.rate_half_life * 1e36)
         else:
             new_full_utilization_interest = full_utilization_interest
         new_full_utilization_interest = min(new_full_utilization_interest, self.params.max_full_util_rate)
@@ -1680,14 +1682,14 @@ class VariableInterestRate:
         new_full_utilization_interest = self.get_full_utilization_interest(delta_time, utilization,
                                                                            old_full_utilization_interest)
         vertex_interest = (((
-            new_full_utilization_interest - self.params.zero_util_rate) * self.params.vertex_rate_percent) + self.params.zero_util_rate)
+                                    new_full_utilization_interest - self.params.zero_util_rate) * self.params.vertex_rate_percent) + self.params.zero_util_rate)
         if utilization < self.params.vertex_util:
             new_rate_per_sec = (self.params.zero_util_rate + (
-                utilization * (vertex_interest - self.params.zero_util_rate)) / self.params.vertex_util)
+                    utilization * (vertex_interest - self.params.zero_util_rate)) / self.params.vertex_util)
         else:
             new_rate_per_sec = (vertex_interest + (
-                (utilization - self.params.vertex_util) * (new_full_utilization_interest - vertex_interest)) / (
-                    1.0 - self.params.vertex_util))
+                    (utilization - self.params.vertex_util) * (new_full_utilization_interest - vertex_interest)) / (
+                                        1.0 - self.params.vertex_util))
         return new_rate_per_sec, new_full_utilization_interest
 
 
@@ -1706,7 +1708,7 @@ class TimeWeightedVariableInterestRate:
                                             delta_time: float) -> float:
         old_rate_per_sec = self.calculate_rate_per_sec(old_lend_apr)
         old_full_util_rate = old_rate_per_sec / (
-            old_utilization * (1 - self.params.protocol_fee)) if old_utilization != 0 else 0
+                old_utilization * (1 - self.params.protocol_fee)) if old_utilization != 0 else 0
 
         if old_utilization < self.params.min_utilization:
             delta_utilization = ((self.params.min_utilization - old_utilization) *
@@ -1716,7 +1718,7 @@ class TimeWeightedVariableInterestRate:
         elif old_utilization > self.params.max_utilization:
             delta_utilization = ((old_utilization - self.params.max_utilization) *
                                  self.params.rate_precision) / (
-                self.params.util_precision - self.params.max_utilization)
+                                        self.params.util_precision - self.params.max_utilization)
             decay_growth = (self.rate_half_life_secs * 1e36) + (delta_utilization * delta_utilization * delta_time)
             new_full_util_rate = (old_full_util_rate * decay_growth) / (self.rate_half_life_secs * 1e36)
         else:
@@ -1736,34 +1738,58 @@ class TimeWeightedVariableInterestRate:
         full_utilization_rate = self.calculate_new_full_utilization_rate(
             old_utilization, old_lend_apr, delta_time)
         lend_rate_per_sec = full_utilization_rate * current_utilization * (
-            1 - self.params.protocol_fee) if current_utilization != 0 else 0
+                1 - self.params.protocol_fee) if current_utilization != 0 else 0
         lend_apr = lend_rate_per_sec * 100
         return lend_apr
 
 
-def get_pair_links(driver):
+def get_pair_links(driver, max_retries=3):
     url = "https://facts.frax.finance/fraxlend/pairs"
     logger.info(f"Попытка загрузки страницы: {url}")
-    try:
-        response = requests.get(url, timeout=60)
-        logger.info(f"Статус HTTP-запроса к {url}: {response.status_code}")
-    except Exception as e:
-        logger.error(f"Ошибка сетевого доступа к {url}: {e}")
-    driver.get(url)
-    try:
-        WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "a[href^='/fraxlend/pairs/']")))
-        elems = driver.find_elements(By.CSS_SELECTOR, "a[href^='/fraxlend/pairs/']")
-        links = set()
-        for e in elems:
-            href = e.get_attribute("href")
-            if href.startswith("https://facts.frax.finance/fraxlend/pairs/"):
-                links.add(href)
-        logger.info(f"Найдено ссылок на пары: {len(links)}")
-        return list(links)
-    except Exception as e:
-        logger.error(f"Ошибка при получении ссылок: {e}")
-        return []
+
+    for attempt in range(max_retries):
+        try:
+            # Проверка сетевой доступности
+            response = requests.get(url, timeout=60)
+            logger.info(f"Статус HTTP-запроса к {url}: {response.status_code}")
+
+            # Загрузка страницы в WebDriver
+            driver.get(url)
+
+            # Ожидание появления ссылок
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='/fraxlend/pairs/']"))
+            )
+            elems = driver.find_elements(By.CSS_SELECTOR, "a[href*='/fraxlend/pairs/']")
+            links = set()
+            for e in elems:
+                href = e.get_attribute("href")
+                if href and '/fraxlend/pairs/' in href:
+                    # Приведение относительных ссылок к абсолютным
+                    if not href.startswith('http'):
+                        href = f"https://facts.frax.finance{href}"
+                    if href.startswith("https://facts.frax.finance/fraxlend/pairs/"):
+                        links.add(href)
+            logger.info(f"Найдено ссылок на пары: {len(links)}")
+            return list(links)[:MAX_PAIRS]  # Ограничение количества пар
+
+        except EC.TimeoutException as e:
+            logger.error(f"Попытка {attempt + 1}/{max_retries}: Тайм-аут при ожидании элементов на {url}: {e}")
+            if attempt == max_retries - 1:
+                logger.error("Не удалось загрузить ссылки после всех попыток.")
+                send_to_telegram("Ошибка: Не удалось загрузить ссылки на пары.")
+                return []
+            time.sleep(5)
+
+        except Exception as e:
+            logger.error(f"Попытка {attempt + 1}/{max_retries}: Ошибка при получении ссылок: {type(e).__name__}: {e}")
+            if attempt == max_retries - 1:
+                logger.error("Не удалось загрузить ссылки после всех попыток.")
+                send_to_telegram("Ошибка: Не удалось загрузить ссылки на пары.")
+                return []
+            time.sleep(5)
+
+    return []
 
 
 def fetch_metrics(driver, url):
@@ -1892,11 +1918,12 @@ def send_to_telegram(message):
             else:
                 logger.info(f"Сообщение успешно отправлено в Telegram для chat_id {chat_id}")
         except Exception as e:
-            logger.error(f"Ошибка отправки в Telegram для chat_id {chat_id}: {e}")
+            logger.error(f"Ошибка отправки в Telegram для chat_id {chat_id}: {type(e).__name__}: {e}")
 
 
 def process_pairs():
-    logger.info(f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+    logger.info(
+        f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
     send_to_telegram("Тест: Сервер запущен, начинаем парсинг")
 
     options = Options()
@@ -1910,6 +1937,7 @@ def process_pairs():
     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
     logger.info(f"Используемый путь к chromedriver: {chromedriver_path}")
 
+    driver = None
     for attempt in range(3):
         try:
             logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver")
@@ -1917,9 +1945,9 @@ def process_pairs():
             logger.info("WebDriver успешно инициализирован")
             break
         except Exception as e:
-            logger.error(f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver: {e}")
+            logger.error(f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver: {type(e).__name__}: {e}")
             if attempt == 2:
-                logger.error("Не удалось инициализировать WebDriver после 3 попыток. Прекращаем выполнение.")
+                logger.error("Не удалось инициализировать WebDriver после 3 попыток.")
                 send_to_telegram("Ошибка: Не удалось инициализировать WebDriver. Проверьте конфигурацию.")
                 return
             time.sleep(2)
@@ -1935,9 +1963,16 @@ def process_pairs():
 
     while True:
         try:
-            logger.info(f"Начало парсинга пар, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+            logger.info(
+                f"Начало парсинга пар, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
             pair_links = get_pair_links(driver)
             logger.info(f"Найдено пар: {len(pair_links)}")
+
+            if not pair_links:
+                logger.warning("Список пар пуст. Пропускаем итерацию.")
+                send_to_telegram("Предупреждение: Список пар пуст. Проверьте сайт или селектор.")
+                time.sleep(CHECK_INTERVAL)
+                continue
 
             for url in tqdm(pair_links, desc="Обработка пар"):
                 if url in processed_urls:
@@ -1969,11 +2004,37 @@ def process_pairs():
                     send_to_telegram(message)
                     processed_urls.add(url)
 
-        except Exception as e:
-            logger.error(f"Ошибка обработки пар: {e}")
-            send_to_telegram(f"Ошибка при обработке пар: {e}")
+                # Освобождение памяти после обработки каждой пары
+                logger.info(f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+                driver.execute_script("window.localStorage.clear();")
+                driver.execute_script("window.sessionStorage.clear();")
+                time.sleep(1)  # Короткая пауза для снижения нагрузки
 
-        driver.quit()
+        except Exception as e:
+            logger.error(f"Ошибка обработки пар: {type(e).__name__}: {e}")
+            send_to_telegram(f"Ошибка при обработке пар: {type(e).__name__}: {e}")
+
+        # Закрытие WebDriver и повторное открытие для следующей итерации
+        if driver:
+            driver.quit()
+            logger.info(f"WebDriver закрыт, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+            time.sleep(2)
+            # Повторная инициализация WebDriver
+            for attempt in range(3):
+                try:
+                    logger.info(f"Попытка {attempt + 1}/3: Повторная инициализация WebDriver")
+                    driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+                    logger.info("WebDriver успешно переинициализирован")
+                    break
+                except Exception as e:
+                    logger.error(
+                        f"Попытка {attempt + 1}/3: Ошибка повторной инициализации WebDriver: {type(e).__name__}: {e}")
+                    if attempt == 2:
+                        logger.error("Не удалось переинициализировать WebDriver. Прекращаем выполнение.")
+                        send_to_telegram("Ошибка: Не удалось переинициализировать WebDriver.")
+                        return
+                    time.sleep(2)
+
         logger.info(f"Ожидание {CHECK_INTERVAL} секунд перед следующей проверкой")
         time.sleep(CHECK_INTERVAL)
 
@@ -1985,14 +2046,19 @@ def home():
 
 @app.route("/status")
 def status():
-    return {"status": "ok"}
+    return {"status": "ok", "memory_mb": psutil.Process().memory_info().rss / 1024 / 1024}
 
 
 def run_background():
     logger.info("Запуск фонового потока для парсинга")
-    thread = threading.Thread(target=process_pairs)
-    thread.daemon = True
-    thread.start()
+    try:
+        thread = threading.Thread(target=process_pairs)
+        thread.daemon = True
+        thread.start()
+        logger.info("Фоновый поток успешно запущен")
+    except Exception as e:
+        logger.error(f"Ошибка запуска фонового потока: {type(e).__name__}: {e}")
+        send_to_telegram(f"Ошибка запуска фонового потока: {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
