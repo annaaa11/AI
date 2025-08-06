@@ -306,14 +306,16 @@ def process_pairs():
     # options.add_argument('--no-sandbox')
     # options.add_argument('--disable-dev-shm-usage')
 
-    options = uc.ChromeOptions()
-    options.headless = True
+    options = Options()
+    options.binary_location = "/usr/bin/chromium"  # путь к chromium в Render
+
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
-    options.binary_location = "/path/to/chrome_or_chromium_binary"
+    driver = uc.Chrome(options=options, driver_executable_path="/usr/bin/chromedriver")
 
-    driver = uc.Chrome(version_main=138, options=options)
+
 
     #driver = uc.Chrome(options=options)
 
