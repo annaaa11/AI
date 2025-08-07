@@ -1627,6 +1627,181 @@ def kill_chromedriver():
     except Exception as e:
         logger.error(f"Ошибка при завершении chromedriver: {type(e).__name__}: {e}")
 
+# def process_pairs():
+#     logger.info(
+#         f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#     send_to_telegram("Тест: Сервер запущен, начинаем парсинг")
+#
+#     options = Options()
+#     options.add_argument('--headless')
+#     options.add_argument('--no-sandbox')
+#     options.add_argument('--disable-dev-shm-usage')
+#     options.add_argument('--disable-gpu')
+#     options.add_argument('--window-size=1280,720')
+#     options.add_argument('--disable-extensions')
+#     options.add_argument('--disable-images')
+#     options.add_argument('--blink-settings=imagesEnabled=false')
+#     options.binary_location = '/usr/bin/chromium'
+#
+#     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+#     logger.info(f"Используемый путь к chromedriver: {chromedriver_path}")
+#
+#     v1_params = TimeWeightedInterestRateParams()
+#     v2_params = InterestRateParams()
+#     v1_model = TimeWeightedVariableInterestRate(v1_params)
+#     v2_model = VariableInterestRate(v2_params)
+#
+#     processed_urls = set()
+#     iteration_count = 0
+#
+#     while True:
+#         iteration_start_time = time.time()
+#         iteration_count += 1
+#         peak_memory = psutil.Process().memory_info().rss / 1024 / 1024
+#
+#         # Log current blacklist at the start of each cycle
+#         logger.info(f"Текущий черный список: {BLACKLISTED_PAIRS}")
+#         send_to_telegram(f"Начало цикла #{iteration_count}. Текущий черный список: {BLACKLISTED_PAIRS}")
+#
+#         # Optionally reset blacklist every N iterations (e.g., every 24 hours = 24 cycles)
+#         if iteration_count % 24 == 0:
+#             logger.info("Сброс черного списка")
+#             BLACKLISTED_PAIRS.clear()
+#             send_to_telegram("Черный список сброшен")
+#
+#         try:
+#             logger.info(
+#                 f"Начало парсинга пар, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#
+#             driver = None
+#             for attempt in range(3):
+#                 try:
+#                     logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver для списка пар")
+#                     driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+#                     logger.info("WebDriver успешно инициализирован для списка пар")
+#                     break
+#                 except Exception as e:
+#                     logger.error(f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver: {type(e).__name__}: {e}")
+#                     if attempt == 2:
+#                         logger.error("Не удалось инициализировать WebDriver после 3 попыток.")
+#                         send_to_telegram("Ошибка: Не удалось инициализировать WebDriver. Проверьте конфигурацию.")
+#                         return
+#                     time.sleep(2)
+#
+#             pair_links = get_pair_links(driver)
+#             if driver:
+#                 try:
+#                     driver.quit()
+#                 except NewConnectionError:
+#                     logger.info("Игнорируется NewConnectionError при закрытии WebDriver для списка пар")
+#                 kill_chromedriver()
+#                 logger.info(
+#                     f"WebDriver закрыт после получения списка пар, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#
+#             logger.info(f"Найдено пар: {len(pair_links)}")
+#             if not pair_links:
+#                 logger.warning("Список пар пуст. Пропускаем итерацию.")
+#                 send_to_telegram("Предупреждение: Список пар пуст. Проверьте сайт или селектор.")
+#                 time.sleep(CHECK_INTERVAL)
+#                 continue
+#
+#             for url in tqdm(pair_links, desc="Обработка пар"):
+#                 if time.time() - iteration_start_time > MAX_ITERATION_TIME:
+#                     logger.warning(
+#                         f"Превышено максимальное время итерации ({MAX_ITERATION_TIME} секунд). Пропускаем оставшиеся пары.")
+#                     send_to_telegram(
+#                         f"Превышено время итерации ({MAX_ITERATION_TIME} секунд). Пропущено {len(pair_links) - pair_links.index(url)} пар.")
+#                     break
+#
+#                 if url in processed_urls or url in BLACKLISTED_PAIRS:
+#                     logger.debug(f"Пропущена пара (уже обработана или в черном списке): {url}")
+#                     continue
+#
+#                 driver = None
+#                 for attempt in range(3):
+#                     try:
+#                         logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver для {url}")
+#                         driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+#                         logger.info(f"WebDriver успешно инициализирован для {url}")
+#                         break
+#                     except Exception as e:
+#                         logger.error(
+#                             f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver для {url}: {type(e).__name__}: {e}")
+#                         if attempt == 2:
+#                             logger.error(f"Не удалось инициализировать WebDriver для {url} после 3 попыток.")
+#                             send_to_telegram(f"Ошибка: Не удалось инициализировать WebDriver для {url}.")
+#                             break
+#                         time.sleep(2)
+#
+#                 if driver:
+#                     data = fetch_metrics(driver, url)
+#                     if all(data.get(label, "N/A") == "N/A" for label in ["Available Liquidity", "Utilization Rate", "Lend APR", "Reserve Size"]):
+#                         logger.info(f"Пропущена пара из-за некорректных данных: {url}")
+#                         processed_urls.add(url)
+#                     else:
+#                         optimal_investment, max_profit, optimal_lend_apr, optimal_utilization = calculate_optimal_investment(
+#                             data, v1_model, v2_model)
+#
+#                         rate_type = data.get("Rate Type", "N/A")
+#                         if optimal_investment is not None:
+#                             timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+#                             message = (
+#                                 f"📄 Пара: {url} ({rate_type})\n"
+#                                 f"Timestamp (UTC): {timestamp} +3 часа\n"
+#                                 f"Старая Lend APR: {data.get('Lend APR')}\n"
+#                                 f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%\n"
+#                                 f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
+#                                 f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
+#                                 f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
+#                                 f"Available Liquidity: {data.get('Available Liquidity')}\n"
+#                                 f"Utilization Rate: {data.get('Utilization Rate')}\n"
+#                                 f"Borrow APR: {data.get('Borrow APR')}\n"
+#                                 f"Reserve Size: {data.get('Reserve Size')}\n"
+#                                 f"Rate Type: {rate_type}"
+#                             )
+#                             send_to_telegram(message)
+#                             processed_urls.add(url)
+#
+#                     peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
+#                     logger.info(
+#                         f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#                     logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
+#
+#                     try:
+#                         driver.quit()
+#                     except NewConnectionError:
+#                         logger.info(f"Игнорируется NewConnectionError при закрытии WebDriver для {url}")
+#                     kill_chromedriver()
+#                     logger.info(
+#                         f"WebDriver закрыт после обработки {url}, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#
+#         except Exception as e:
+#             logger.error(f"Ошибка обработки пар: {type(e).__name__}: {e}")
+#             send_to_telegram(f"Ошибка при обработке пар: {type(e).__name__}: {e}")
+#
+#         finally:
+#             if driver:
+#                 try:
+#                     driver.quit()
+#                 except NewConnectionError:
+#                     logger.info("Игнорируется NewConnectionError при закрытии WebDriver в finally")
+#                 kill_chromedriver()
+#                 logger.info(
+#                     f"WebDriver закрыт в finally, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#
+#             elapsed_time = time.time() - iteration_start_time
+#             logger.info(f"Итерация завершена за {elapsed_time:.2f} секунд")
+#             logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
+#             logger.info(f"Ожидание {CHECK_INTERVAL} секунд перед следующей итерацией")
+#             remaining_time = CHECK_INTERVAL
+#             while remaining_time > 0:
+#                 sleep_time = min(30, remaining_time)
+#                 time.sleep(sleep_time)
+#                 remaining_time -= sleep_time
+#                 peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
+#                 logger.info(
+#                     f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
+
 def process_pairs():
     logger.info(
         f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
@@ -1651,7 +1826,6 @@ def process_pairs():
     v1_model = TimeWeightedVariableInterestRate(v1_params)
     v2_model = VariableInterestRate(v2_params)
 
-    processed_urls = set()
     iteration_count = 0
 
     while True:
@@ -1659,11 +1833,15 @@ def process_pairs():
         iteration_count += 1
         peak_memory = psutil.Process().memory_info().rss / 1024 / 1024
 
-        # Log current blacklist at the start of each cycle
+        # Сбрасываем processed_urls в начале каждого цикла
+        processed_urls = set()
+        logger.info(f"Сброс processed_urls для цикла #{iteration_count}")
+
+        # Логируем черный список
         logger.info(f"Текущий черный список: {BLACKLISTED_PAIRS}")
         send_to_telegram(f"Начало цикла #{iteration_count}. Текущий черный список: {BLACKLISTED_PAIRS}")
 
-        # Optionally reset blacklist every N iterations (e.g., every 24 hours = 24 cycles)
+        # Сбрасываем черный список каждые 24 цикла (примерно раз в сутки)
         if iteration_count % 24 == 0:
             logger.info("Сброс черного списка")
             BLACKLISTED_PAIRS.clear()
@@ -1688,7 +1866,9 @@ def process_pairs():
                         return
                     time.sleep(2)
 
+            # Логируем список полученных пар
             pair_links = get_pair_links(driver)
+            logger.info(f"Полученные пары: {pair_links}")
             if driver:
                 try:
                     driver.quit()
@@ -1705,6 +1885,9 @@ def process_pairs():
                 time.sleep(CHECK_INTERVAL)
                 continue
 
+            # Собираем пропущенные пары для уведомления в Telegram
+            skipped_pairs = []
+
             for url in tqdm(pair_links, desc="Обработка пар"):
                 if time.time() - iteration_start_time > MAX_ITERATION_TIME:
                     logger.warning(
@@ -1714,7 +1897,8 @@ def process_pairs():
                     break
 
                 if url in processed_urls or url in BLACKLISTED_PAIRS:
-                    logger.debug(f"Пропущена пара (уже обработана или в черном списке): {url}")
+                    logger.info(f"Пропущена пара (уже обработана или в черном списке): {url}")  # Изменено на INFO
+                    skipped_pairs.append(url)
                     continue
 
                 driver = None
@@ -1775,6 +1959,10 @@ def process_pairs():
                     logger.info(
                         f"WebDriver закрыт после обработки {url}, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
+            # Отправляем уведомление о пропущенных парах
+            if skipped_pairs:
+                send_to_telegram(f"Пропущенные пары в цикле #{iteration_count}: {', '.join(skipped_pairs)}")
+
         except Exception as e:
             logger.error(f"Ошибка обработки пар: {type(e).__name__}: {e}")
             send_to_telegram(f"Ошибка при обработке пар: {type(e).__name__}: {e}")
@@ -1801,7 +1989,6 @@ def process_pairs():
                 peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
                 logger.info(
                     f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
-
 def main():
     logger.info("Запуск Background Worker")
     send_to_telegram("Тест: Background Worker запущен")
