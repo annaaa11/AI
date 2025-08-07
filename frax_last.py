@@ -704,39 +704,93 @@ def get_pair_links(driver, max_retries=3):
             time.sleep(2)
 
     return []
+# Add a blacklist for problematic pairs
+BLACKLISTED_PAIRS = set()
 
-def fetch_metrics(driver, url, timeout=10):
+def fetch_metrics(driver, url, timeout=15, max_retries=2):  # Increased timeout to 15 seconds
     logger.info(f"Загрузка страницы: {url}")
-    try:
-        start_time = time.time()
-        process = psutil.Process()
-        peak_memory = process.memory_info().rss / 1024 / 1024
-        driver.get(url)
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Available Liquidity')]")))
-        labels = ["Available Liquidity", "Utilization Rate", "Lend APR", "Borrow APR", "Reserve Size", "Rate Type"]
-        data = {"Link": url}
-        for label in labels:
-            try:
-                el = driver.find_element(By.XPATH, f"//div[contains(text(), '{label}')]/following-sibling::div")
-                data[label] = el.text.strip()
-            except:
-                data[label] = "N/A"
-        logger.info(f"Данные для {url}: {data}")
-        logger.info(f"Время обработки {url}: {time.time() - start_time:.2f} секунд")
-        peak_memory = max(peak_memory, process.memory_info().rss / 1024 / 1024)
-        logger.info(f"Пиковая память во время обработки {url}: {peak_memory:.2f} MB")
-        return data
-    except TimeoutException as e:
-        logger.error(f"Тайм-аут при загрузке данных для {url}: {e}")
-        send_to_telegram(f"Тайм-аут при загрузке данных для {url}: {e}")
+    if url in BLACKLISTED_PAIRS:
+        logger.info(f"Пара {url} в черном списке, пропускаем")
         return {"Link": url, "Available Liquidity": "N/A", "Utilization Rate": "N/A", "Lend APR": "N/A",
                 "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A"}
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке данных для {url}: {type(e).__name__}: {e}")
-        send_to_telegram(f"Ошибка при загрузке данных для {url}: {type(e).__name__}: {e}")
-        return {"Link": url, "Available Liquidity": "N/A", "Utilization Rate": "N/A", "Lend APR": "N/A",
-                "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A"}
+
+    for attempt in range(max_retries):
+        try:
+            start_time = time.time()
+            process = psutil.Process()
+            peak_memory = process.memory_info().rss / 1024 / 1024
+            driver.get(url)
+            # Wait for the page to load and check for a key element
+            WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Available Liquidity')]")))
+            # Verify page content
+            if "Frax Facts" not in driver.page_source:
+                raise Exception("Страница не содержит ожидаемого содержимого 'Frax Facts'")
+            labels = ["Available Liquidity", "Utilization Rate", "Lend APR", "Borrow APR", "Reserve Size", "Rate Type"]
+            data = {"Link": url}
+            for label in labels:
+                try:
+                    el = driver.find_element(By.XPATH, f"//div[contains(text(), '{label}')]/following-sibling::div")
+                    data[label] = el.text.strip()
+                except:
+                    data[label] = "N/A"
+            logger.info(f"Данные для {url}: {data}")
+            logger.info(f"Время обработки {url}: {time.time() - start_time:.2f} секунд")
+            peak_memory = max(peak_memory, process.memory_info().rss / 1024 / 1024)
+            logger.info(f"Пиковая память во время обработки {url}: {peak_memory:.2f} MB")
+            return data
+        except TimeoutException as e:
+            logger.error(f"Попытка {attempt + 1}/{max_retries}: Тайм-аут при загрузке данных для {url}: {e}")
+            if attempt == max_retries - 1:
+                logger.error(f"Пара {url} не загрузилась после {max_retries} попыток, добавляем в черный список")
+                BLACKLISTED_PAIRS.add(url)
+                # Only send Telegram message for persistent failures
+                send_to_telegram(f"Пара {url} не загрузилась после {max_retries} попыток, добавлена в черный список")
+                return {"Link": url, "Available Liquidity": "N/A", "Utilization Rate": "N/A", "Lend APR": "N/A",
+                        "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A"}
+            time.sleep(2)
+        except Exception as e:
+            logger.error(f"Попытка {attempt + 1}/{max_retries}: Ошибка при загрузке данных для {url}: {type(e).__name__}: {e}")
+            if attempt == max_retries - 1:
+                logger.error(f"Пара {url} не загрузилась после {max_retries} попыток, добавляем в черный список")
+                BLACKLISTED_PAIRS.add(url)
+                send_to_telegram(f"Ошибка при загрузке данных для {url}: {type(e).__name__}: {e}")
+                return {"Link": url, "Available Liquidity": "N/A", "Utilization Rate": "N/A", "Lend APR": "N/A",
+                        "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A"}
+            time.sleep(2)
+
+# def fetch_metrics(driver, url, timeout=10):
+#     logger.info(f"Загрузка страницы: {url}")
+#     try:
+#         start_time = time.time()
+#         process = psutil.Process()
+#         peak_memory = process.memory_info().rss / 1024 / 1024
+#         driver.get(url)
+#         WebDriverWait(driver, timeout).until(
+#             EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Available Liquidity')]")))
+#         labels = ["Available Liquidity", "Utilization Rate", "Lend APR", "Borrow APR", "Reserve Size", "Rate Type"]
+#         data = {"Link": url}
+#         for label in labels:
+#             try:
+#                 el = driver.find_element(By.XPATH, f"//div[contains(text(), '{label}')]/following-sibling::div")
+#                 data[label] = el.text.strip()
+#             except:
+#                 data[label] = "N/A"
+#         logger.info(f"Данные для {url}: {data}")
+#         logger.info(f"Время обработки {url}: {time.time() - start_time:.2f} секунд")
+#         peak_memory = max(peak_memory, process.memory_info().rss / 1024 / 1024)
+#         logger.info(f"Пиковая память во время обработки {url}: {peak_memory:.2f} MB")
+#         return data
+#     except TimeoutException as e:
+#         logger.error(f"Тайм-аут при загрузке данных для {url}: {e}")
+#         send_to_telegram(f"Тайм-аут при загрузке данных для {url}: {e}")
+#         return {"Link": url, "Available Liquidity": "N/A", "Utilization Rate": "N/A", "Lend APR": "N/A",
+#                 "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A"}
+#     except Exception as e:
+#         logger.error(f"Ошибка при загрузке данных для {url}: {type(e).__name__}: {e}")
+#         send_to_telegram(f"Ошибка при загрузке данных для {url}: {type(e).__name__}: {e}")
+#         return {"Link": url, "Available Liquidity": "N/A", "Utilization Rate": "N/A", "Lend APR": "N/A",
+#                 "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A"}
 
 def parse_dollar_amount(amount_str: str, is_reserve_size: bool = False) -> float:
     if amount_str == "N/A" or not amount_str:
@@ -857,6 +911,172 @@ def kill_chromedriver():
     except Exception as e:
         logger.error(f"Ошибка при завершении chromedriver: {type(e).__name__}: {e}")
 
+# def process_pairs():
+#     logger.info(
+#         f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#     send_to_telegram("Тест: Сервер запущен, начинаем парсинг")
+#
+#     options = Options()
+#     options.add_argument('--headless')
+#     options.add_argument('--no-sandbox')
+#     options.add_argument('--disable-dev-shm-usage')
+#     options.add_argument('--disable-gpu')
+#     options.add_argument('--window-size=1280,720')
+#     options.add_argument('--disable-extensions')
+#     options.add_argument('--disable-images')
+#     options.add_argument('--blink-settings=imagesEnabled=false')
+#     options.binary_location = '/usr/bin/chromium'
+#
+#     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+#     logger.info(f"Используемый путь к chromedriver: {chromedriver_path}")
+#
+#     v1_params = TimeWeightedInterestRateParams()
+#     v2_params = InterestRateParams()
+#     v1_model = TimeWeightedVariableInterestRate(v1_params)
+#     v2_model = VariableInterestRate(v2_params)
+#
+#     processed_urls = set()
+#
+#     while True:
+#         iteration_start_time = time.time()
+#         peak_memory = psutil.Process().memory_info().rss / 1024 / 1024
+#         try:
+#             logger.info(
+#                 f"Начало парсинга пар, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#
+#             # Инициализация WebDriver для получения списка пар
+#             driver = None
+#             for attempt in range(3):
+#                 try:
+#                     logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver для списка пар")
+#                     driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+#                     logger.info("WebDriver успешно инициализирован для списка пар")
+#                     break
+#                 except Exception as e:
+#                     logger.error(f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver: {type(e).__name__}: {e}")
+#                     if attempt == 2:
+#                         logger.error("Не удалось инициализировать WebDriver после 3 попыток.")
+#                         send_to_telegram("Ошибка: Не удалось инициализировать WebDriver. Проверьте конфигурацию.")
+#                         return
+#                     time.sleep(2)
+#
+#             pair_links = get_pair_links(driver)
+#             if driver:
+#                 try:
+#                     driver.quit()
+#                 except NewConnectionError:
+#                     logger.info("Игнорируется NewConnectionError при закрытии WebDriver для списка пар")
+#                 kill_chromedriver()
+#                 logger.info(
+#                     f"WebDriver закрыт после получения списка пар, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#
+#             logger.info(f"Найдено пар: {len(pair_links)}")
+#             if not pair_links:
+#                 logger.warning("Список пар пуст. Пропускаем итерацию.")
+#                 send_to_telegram("Предупреждение: Список пар пуст. Проверьте сайт или селектор.")
+#                 time.sleep(CHECK_INTERVAL)
+#                 continue
+#
+#             for url in tqdm(pair_links, desc="Обработка пар"):
+#                 if time.time() - iteration_start_time > MAX_ITERATION_TIME:
+#                     logger.warning(
+#                         f"Превышено максимальное время итерации ({MAX_ITERATION_TIME} секунд). Пропускаем оставшиеся пары.")
+#                     send_to_telegram(
+#                         f"Превышено время итерации ({MAX_ITERATION_TIME} секунд). Пропущено {len(pair_links) - pair_links.index(url)} пар.")
+#                     break
+#
+#                 if url in processed_urls:
+#                     logger.debug(f"Пропущена пара (уже обработана): {url}")
+#                     continue
+#
+#                 # Инициализация WebDriver для каждой пары
+#                 driver = None
+#                 for attempt in range(3):
+#                     try:
+#                         logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver для {url}")
+#                         driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+#                         logger.info(f"WebDriver успешно инициализирован для {url}")
+#                         break
+#                     except Exception as e:
+#                         logger.error(
+#                             f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver для {url}: {type(e).__name__}: {e}")
+#                         if attempt == 2:
+#                             logger.error(f"Не удалось инициализировать WebDriver для {url} после 3 попыток.")
+#                             send_to_telegram(f"Ошибка: Не удалось инициализировать WebDriver для {url}.")
+#                             break
+#                         time.sleep(2)
+#
+#                 if driver:
+#                     data = fetch_metrics(driver, url)
+#                     # Skip pair if data is invalid
+#                     if all(data.get(label, "N/A") == "N/A" for label in ["Available Liquidity", "Utilization Rate", "Lend APR", "Reserve Size"]):
+#                         logger.info(f"Пропущена пара из-за некорректных данных: {url}")
+#                         processed_urls.add(url)
+#                     else:
+#                         optimal_investment, max_profit, optimal_lend_apr, optimal_utilization = calculate_optimal_investment(
+#                             data, v1_model, v2_model)
+#
+#                         rate_type = data.get("Rate Type", "N/A")
+#                         if optimal_investment is not None:
+#                             timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+#                             message = (
+#                                 f"📄 Пара: {url} ({rate_type})\n"
+#                                 f"Timestamp (UTC): {timestamp} +3 часа\n"
+#                                 f"Старая Lend APR: {data.get('Lend APR')}\n"
+#                                 f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%\n"
+#                                 f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
+#                                 f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
+#                                 f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
+#                                 f"Available Liquidity: {data.get('Available Liquidity')}\n"
+#                                 f"Utilization Rate: {data.get('Utilization Rate')}\n"
+#                                 f"Borrow APR: {data.get('Borrow APR')}\n"
+#                                 f"Reserve Size: {data.get('Reserve Size')}\n"
+#                                 f"Rate Type: {rate_type}"
+#                             )
+#                             send_to_telegram(message)
+#                             processed_urls.add(url)
+#
+#                     peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
+#                     logger.info(
+#                         f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#                     logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
+#
+#                     # Закрытие WebDriver
+#                     try:
+#                         driver.quit()
+#                     except NewConnectionError:
+#                         logger.info(f"Игнорируется NewConnectionError при закрытии WebDriver для {url}")
+#                     kill_chromedriver()
+#                     logger.info(
+#                         f"WebDriver закрыт после обработки {url}, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#
+#         except Exception as e:
+#             logger.error(f"Ошибка обработки пар: {type(e).__name__}: {e}")
+#             send_to_telegram(f"Ошибка при обработке пар: {type(e).__name__}: {e}")
+#
+#         finally:
+#             if driver:
+#                 try:
+#                     driver.quit()
+#                 except NewConnectionError:
+#                     logger.info("Игнорируется NewConnectionError при закрытии WebDriver в finally")
+#                 kill_chromedriver()
+#                 logger.info(
+#                     f"WebDriver закрыт в finally, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#
+#             elapsed_time = time.time() - iteration_start_time
+#             logger.info(f"Итерация завершена за {elapsed_time:.2f} секунд")
+#             logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
+#             logger.info(f"Ожидание {CHECK_INTERVAL} секунд перед следующей итерацией")
+#             remaining_time = CHECK_INTERVAL
+#             while remaining_time > 0:
+#                 sleep_time = min(30, remaining_time)
+#                 time.sleep(sleep_time)
+#                 remaining_time -= sleep_time
+#                 peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
+#                 logger.info(
+#                     f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
+
 def process_pairs():
     logger.info(
         f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
@@ -931,8 +1151,8 @@ def process_pairs():
                         f"Превышено время итерации ({MAX_ITERATION_TIME} секунд). Пропущено {len(pair_links) - pair_links.index(url)} пар.")
                     break
 
-                if url in processed_urls:
-                    logger.debug(f"Пропущена пара (уже обработана): {url}")
+                if url in processed_urls or url in BLACKLISTED_PAIRS:
+                    logger.debug(f"Пропущена пара (уже обработана или в черном списке): {url}")
                     continue
 
                 # Инициализация WebDriver для каждой пары
