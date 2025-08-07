@@ -1,0 +1,469 @@
+# from selenium import webdriver
+# from selenium.webdriver.chrome.service import Service
+# from selenium.webdriver.chrome.options import Options
+# from selenium.webdriver.common.by import By
+# from selenium.webdriver.support.ui import WebDriverWait
+# from selenium.webdriver.support import expected_conditions as EC
+# from dataclasses import dataclass
+# from typing import Tuple
+# from tqdm import tqdm
+# import re
+#
+# CHROMEDRIVER_PATH = "C:/Users/User/.wdm/drivers/chromedriver/win64/138.0.7204.183/chromedriver-win32/chromedriver.exe"
+#
+#
+# @dataclass
+# class InterestRateParams:
+#     max_full_util_rate: float = 3.164468e-8
+#     min_full_util_rate: float = 1.580586e-9
+#     zero_util_rate: float = 1.584231e-10
+#     rate_half_life: float = 172800.0
+#     max_target_util: float = 0.85
+#     min_target_util: float = 0.75
+#     vertex_util: float = 0.875
+#     vertex_rate_percent: float = 0.2
+#     util_precision: float = 1e5
+#     rate_precision: float = 1e18
+#
+#
+# class VariableInterestRate:
+#     def __init__(self, params: InterestRateParams, suffix: str = "[0.5 0.2@.875 5-10k] 2 days (.75-.85)"):
+#         self.params = params
+#         self.suffix = suffix
+#
+#     def calculate_old_full_utilization_interest(self, old_lend_apr: float, old_utilization: float) -> float:
+#         seconds_per_year = 365.24 * 24 * 3600
+#         old_borrow_apr = old_lend_apr / old_utilization if old_utilization != 0 else 0
+#         old_borrow_rate_per_sec = old_borrow_apr / (seconds_per_year * 100)
+#         term = (
+#                            old_borrow_rate_per_sec - self.params.zero_util_rate) * self.params.vertex_util / old_utilization if old_utilization != 0 else 0
+#         vertex_interest = term + self.params.zero_util_rate
+#         full_utilization_interest = ((
+#                                                  vertex_interest - self.params.zero_util_rate) / self.params.vertex_rate_percent) + self.params.zero_util_rate
+#         return full_utilization_interest
+#
+#     def get_full_utilization_interest(self, delta_time: float, utilization: float,
+#                                       full_utilization_interest: float) -> float:
+#         if utilization < self.params.min_target_util:
+#             delta_utilization = ((
+#                                              self.params.min_target_util - utilization) * self.params.rate_precision) / self.params.min_target_util
+#             decay_growth = (self.params.rate_half_life * 1e36) + (delta_utilization * delta_utilization * delta_time)
+#             new_full_utilization_interest = (full_utilization_interest * (
+#                         self.params.rate_half_life * 1e36)) / decay_growth
+#         elif utilization > self.params.max_target_util:
+#             delta_utilization = ((utilization - self.params.max_target_util) * self.params.rate_precision) / (
+#                         self.params.util_precision - self.params.max_target_util)
+#             decay_growth = (self.params.rate_half_life * 1e36) + (delta_utilization * delta_utilization * delta_time)
+#             new_full_utilization_interest = (full_utilization_interest * decay_growth) / (
+#                         self.params.rate_half_life * 1e36)
+#         else:
+#             new_full_utilization_interest = full_utilization_interest
+#         new_full_utilization_interest = min(new_full_utilization_interest, self.params.max_full_util_rate)
+#         new_full_utilization_interest = max(new_full_utilization_interest, self.params.min_full_util_rate)
+#         return new_full_utilization_interest
+#
+#     def get_new_rate(self, delta_time: float, utilization: float, old_full_utilization_interest: float) -> Tuple[
+#         float, float]:
+#         new_full_utilization_interest = self.get_full_utilization_interest(delta_time, utilization,
+#                                                                            old_full_utilization_interest)
+#         vertex_interest = (((
+#                                         new_full_utilization_interest - self.params.zero_util_rate) * self.params.vertex_rate_percent) + self.params.zero_util_rate)
+#         if utilization < self.params.vertex_util:
+#             new_rate_per_sec = (self.params.zero_util_rate + (
+#                         utilization * (vertex_interest - self.params.zero_util_rate)) / self.params.vertex_util)
+#         else:
+#             new_rate_per_sec = (vertex_interest + (
+#                         (utilization - self.params.vertex_util) * (new_full_utilization_interest - vertex_interest)) / (
+#                                             1.0 - self.params.vertex_util))
+#         return new_rate_per_sec, new_full_utilization_interest
+#
+#
+# def get_pair_links(driver):
+#     url = "https://facts.frax.finance/fraxlend/pairs"
+#     driver.get(url)
+#     try:
+#         WebDriverWait(driver, 30).until(
+#             EC.presence_of_element_located((By.CSS_SELECTOR, "a[href^='/fraxlend/pairs/']")))
+#         elems = driver.find_elements(By.CSS_SELECTOR, "a[href^='/fraxlend/pairs/']")
+#         links = set()
+#         for e in elems:
+#             href = e.get_attribute("href")
+#             if href.startswith("https://facts.frax.finance/fraxlend/pairs/"):
+#                 links.add(href)
+#         print(f"[DEBUG] Найдено ссылок на пары: {len(links)}")
+#         return list(links)
+#     except Exception as e:
+#         print(f"[DEBUG] Ошибка при получении ссылок: {e}")
+#         return []
+#
+#
+# def fetch_metrics(driver, url):
+#     print(f"[DEBUG] Загрузка страницы: {url}")
+#     driver.get(url)
+#     try:
+#         WebDriverWait(driver, 20).until(
+#             EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Available Liquidity')]")))
+#         labels = ["Available Liquidity", "Utilization Rate", "Lend APR", "Borrow APR", "Reserve Size"]
+#         data = {"Link": url}
+#         for label in labels:
+#             try:
+#                 el = driver.find_element(By.XPATH, f"//div[contains(text(), '{label}')]/following-sibling::div")
+#                 data[label] = el.text.strip()
+#             except:
+#                 data[label] = "N/A"
+#         print(f"[DEBUG] Данные для {url}: {data}")
+#         return data
+#     except Exception as e:
+#         print(f"[DEBUG] Ошибка при загрузке данных для {url}: {e}")
+#         return {"Link": url, "Available Liquidity": "N/A", "Utilization Rate": "N/A", "Lend APR": "N/A",
+#                 "Borrow APR": "N/A", "Reserve Size": "N/A"}
+#
+#
+# def parse_dollar_amount(amount_str: str) -> float:
+#     try:
+#         cleaned = re.sub(r'[^\d.]', '', amount_str)
+#         return float(cleaned) * 1000 if 'k' in amount_str.lower() else float(cleaned)
+#     except:
+#         print(f"[DEBUG] Ошибка парсинга суммы: {amount_str}")
+#         return 0.0
+#
+#
+# def calculate_optimal_investment(data, model, delta_time=86400.0):
+#     try:
+#         lend_apr_str = data.get("Lend APR", "0").replace("%", "").strip()
+#         utilization_str = data.get("Utilization Rate", "0").replace("%", "").strip()
+#         lend_apr = float(lend_apr_str)
+#         utilization = float(utilization_str) / 100
+#         available_liquidity = parse_dollar_amount(data.get("Available Liquidity", "0"))
+#         reserve_size = parse_dollar_amount(data.get("Reserve Size", "0"))
+#         print(
+#             f"[DEBUG] Распарсенные данные: Lend APR={lend_apr}, Utilization={utilization}, Available Liquidity={available_liquidity}, Reserve Size={reserve_size}")
+#     except Exception as e:
+#         print(f"[DEBUG] Ошибка парсинга данных: {e}")
+#         return None, None, None
+#
+#     # Фильтрация: Lend APR > 20% и Utilization Rate < 101%
+#     if lend_apr <= 20 or utilization >= 1.01 or reserve_size == 0:
+#         print(
+#             f"[DEBUG] Пара отфильтрована: Lend APR={lend_apr}, Utilization={utilization}, Reserve Size={reserve_size}")
+#         return None, None, None
+#
+#     seconds_per_year = 365.24 * 24 * 3600
+#     max_investment = 200000
+#     step = 5000
+#     investments = range(3000, int(max_investment) + 1, step)
+#
+#     max_profit = 0
+#     optimal_investment = 0
+#     optimal_lend_apr = 0
+#     valid_investments = 0
+#
+#     old_full_utilization_interest = model.calculate_old_full_utilization_interest(lend_apr, utilization)
+#
+#     for investment in investments:
+#         new_utilization = 1 - (available_liquidity + investment) / (reserve_size + investment)
+#         print(f"[DEBUG] Investment={investment}, new_utilization={new_utilization:.4f}")
+#         if new_utilization < 0:
+#             print(f"[DEBUG] Пропущено: new_utilization={new_utilization:.4f} < 0")
+#             continue
+#
+#         valid_investments += 1
+#         new_rate_per_sec, _ = model.get_new_rate(delta_time, new_utilization, old_full_utilization_interest)
+#         new_lend_apr = new_rate_per_sec * seconds_per_year * new_utilization * 100
+#         daily_profit = (investment * new_lend_apr / 100) / 365.24
+#
+#         if daily_profit > max_profit:
+#             max_profit = daily_profit
+#             optimal_investment = investment
+#             optimal_lend_apr = new_lend_apr
+#
+#     if max_profit == 0:
+#         print(f"[DEBUG] Не найдено допустимых вложений для пары, valid_investments={valid_investments}")
+#         return None, None, None
+#
+#     return optimal_investment, max_profit, optimal_lend_apr
+#
+#
+# def main():
+#     options = Options()
+#     options.add_argument('--headless')
+#     options.add_argument('--no-sandbox')
+#     options.add_argument('--disable-dev-shm-usage')
+#     service = Service(CHROMEDRIVER_PATH)
+#     driver = webdriver.Chrome(service=service, options=options)
+#
+#     params = InterestRateParams()
+#     model = VariableInterestRate(params)
+#
+#     try:
+#         pair_links = get_pair_links(driver)
+#         print(f"Найдено пар: {len(pair_links)}")
+#
+#         for url in tqdm(pair_links, desc="Обработка пар"):
+#             data = fetch_metrics(driver, url)
+#             optimal_investment, max_profit, optimal_lend_apr = calculate_optimal_investment(data, model)
+#
+#             if optimal_investment is not None:
+#                 print("\n📄 Пара:", url)
+#                 print(f"Старая Lend APR: {data.get('Lend APR')}")
+#                 print(f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%")
+#                 print(f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}")
+#                 print(f"Максимальный доход за 1 день: ${max_profit:,.2f}")
+#                 for key in ["Available Liquidity", "Utilization Rate", "Lend APR", "Borrow APR", "Reserve Size"]:
+#                     print(f"{key}: {data.get(key)}")
+#             else:
+#                 print(f"[DEBUG] Пара {url} пропущена")
+#
+#     finally:
+#         driver.quit()
+#
+#
+# if __name__ == "__main__":
+#     main()
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from dataclasses import dataclass
+from typing import Tuple
+from tqdm import tqdm
+import re
+
+CHROMEDRIVER_PATH = "C:/Users/User/.wdm/drivers/chromedriver/win64/138.0.7204.183/chromedriver-win32/chromedriver.exe"
+
+
+@dataclass
+class InterestRateParams:
+    max_full_util_rate: float = 3.164468e-8
+    min_full_util_rate: float = 1.580586e-9
+    zero_util_rate: float = 1.584231e-10
+    rate_half_life: float = 172800.0
+    max_target_util: float = 0.85
+    min_target_util: float = 0.75
+    vertex_util: float = 0.875
+    vertex_rate_percent: float = 0.36 ### 01
+    util_precision: float = 1e5
+    rate_precision: float = 1e18
+
+
+class VariableInterestRate:
+    def __init__(self, params: InterestRateParams, suffix: str = "[0.5 0.2@.875 5-10k] 2 days (.75-.85)"):
+        self.params = params
+        self.suffix = suffix
+
+    def calculate_old_full_utilization_interest(self, old_lend_apr: float, old_utilization: float) -> float:
+        seconds_per_year = 365.24 * 24 * 3600
+        old_borrow_apr = old_lend_apr / old_utilization if old_utilization != 0 else 0
+        old_borrow_rate_per_sec = old_borrow_apr / (seconds_per_year * 100)
+        term = (
+                           old_borrow_rate_per_sec - self.params.zero_util_rate) * self.params.vertex_util / old_utilization if old_utilization != 0 else 0
+        vertex_interest = term + self.params.zero_util_rate
+        full_utilization_interest = ((
+                                                 vertex_interest - self.params.zero_util_rate) / self.params.vertex_rate_percent) + self.params.zero_util_rate
+        return full_utilization_interest
+
+    def get_full_utilization_interest(self, delta_time: float, utilization: float,
+                                      full_utilization_interest: float) -> float:
+        if utilization < self.params.min_target_util:
+            delta_utilization = ((
+                                             self.params.min_target_util - utilization) * self.params.rate_precision) / self.params.min_target_util
+            decay_growth = (self.params.rate_half_life * 1e36) + (delta_utilization * delta_utilization * delta_time)
+            new_full_utilization_interest = (full_utilization_interest * (
+                        self.params.rate_half_life * 1e36)) / decay_growth
+        elif utilization > self.params.max_target_util:
+            delta_utilization = ((utilization - self.params.max_target_util) * self.params.rate_precision) / (
+                        self.params.util_precision - self.params.max_target_util)
+            decay_growth = (self.params.rate_half_life * 1e36) + (delta_utilization * delta_utilization * delta_time)
+            new_full_utilization_interest = (full_utilization_interest * decay_growth) / (
+                        self.params.rate_half_life * 1e36)
+        else:
+            new_full_utilization_interest = full_utilization_interest
+        new_full_utilization_interest = min(new_full_utilization_interest, self.params.max_full_util_rate)
+        new_full_utilization_interest = max(new_full_utilization_interest, self.params.min_full_util_rate)
+        return new_full_utilization_interest
+
+    def get_new_rate(self, delta_time: float, utilization: float, old_full_utilization_interest: float) -> Tuple[
+        float, float]:
+        new_full_utilization_interest = self.get_full_utilization_interest(delta_time, utilization,
+                                                                           old_full_utilization_interest)
+        vertex_interest = (((
+                                        new_full_utilization_interest - self.params.zero_util_rate) * self.params.vertex_rate_percent) + self.params.zero_util_rate)
+        if utilization < self.params.vertex_util:
+            new_rate_per_sec = (self.params.zero_util_rate + (
+                        utilization * (vertex_interest - self.params.zero_util_rate)) / self.params.vertex_util)
+        else:
+            new_rate_per_sec = (vertex_interest + (
+                        (utilization - self.params.vertex_util) * (new_full_utilization_interest - vertex_interest)) / (
+                                            1.0 - self.params.vertex_util))
+        return new_rate_per_sec, new_full_utilization_interest
+
+
+def get_pair_links(driver):
+    url = "https://facts.frax.finance/fraxlend/pairs"
+    driver.get(url)
+    try:
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "a[href^='/fraxlend/pairs/']")))
+        elems = driver.find_elements(By.CSS_SELECTOR, "a[href^='/fraxlend/pairs/']")
+        links = set()
+        for e in elems:
+            href = e.get_attribute("href")
+            if href.startswith("https://facts.frax.finance/fraxlend/pairs/"):
+                links.add(href)
+        print(f"[DEBUG] Найдено ссылок на пары: {len(links)}")
+        return list(links)
+    except Exception as e:
+        print(f"[DEBUG] Ошибка при получении ссылок: {e}")
+        return []
+
+
+def fetch_metrics(driver, url):
+    print(f"[DEBUG] Загрузка страницы: {url}")
+    driver.get(url)
+    try:
+        WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Available Liquidity')]")))
+        labels = ["Available Liquidity", "Utilization Rate", "Lend APR", "Borrow APR", "Reserve Size", "Rate Type"]
+        data = {"Link": url}
+        for label in labels:
+            try:
+                el = driver.find_element(By.XPATH, f"//div[contains(text(), '{label}')]/following-sibling::div")
+                data[label] = el.text.strip()
+            except:
+                data[label] = "N/A"
+        print(f"[DEBUG] Данные для {url}: {data}")
+        return data
+    except Exception as e:
+        print(f"[DEBUG] Ошибка при загрузке данных для {url}: {e}")
+        return {"Link": url, "Available Liquidity": "N/A", "Utilization Rate": "N/A", "Lend APR": "N/A",
+                "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A"}
+
+
+def parse_dollar_amount(amount_str: str) -> float:
+    try:
+        cleaned = re.sub(r'[^\d.]', '', amount_str)
+        return float(cleaned) * 1000 if 'k' in amount_str.lower() else float(cleaned)
+    except:
+        print(f"[DEBUG] Ошибка парсинга суммы: {amount_str}")
+        return 0.0
+
+
+def calculate_optimal_investment(data, model, delta_time=86400.0):
+    try:
+        lend_apr_str = data.get("Lend APR", "0").replace("%", "").strip()
+        utilization_str = data.get("Utilization Rate", "0").replace("%", "").strip()
+        lend_apr = float(lend_apr_str)
+        utilization = float(utilization_str) / 100
+        available_liquidity = parse_dollar_amount(data.get("Available Liquidity", "0"))
+        reserve_size = parse_dollar_amount(data.get("Reserve Size", "0"))
+        rate_type = data.get("Rate Type", "N/A")
+        print(
+            f"[DEBUG] Распарсенные данные: Lend APR={lend_apr}, Utilization={utilization}, Available Liquidity={available_liquidity}, Reserve Size={reserve_size}, Rate Type={rate_type}")
+    except Exception as e:
+        print(f"[DEBUG] Ошибка парсинга данных: {e}")
+        return None, None, None, None
+
+    # Фильтрация: Lend APR > 20%, Utilization Rate < 101%, Reserve Size != 0
+    if lend_apr <= 20 or utilization >= 1.01 or reserve_size == 0:
+        print(
+            f"[DEBUG] Пара отфильтрована: Lend APR={lend_apr}, Utilization={utilization}, Reserve Size={reserve_size}, Rate Type={rate_type}")
+        return None, None, None, None
+
+    # Для Variable V1 возвращаем None, чтобы вывести "не рассчитано"
+    if rate_type == "Variable V1":
+        return None, None, None, None
+
+    # Расчёт только для Variable V2
+    if rate_type == "Variable V2":
+        seconds_per_year = 365.24 * 24 * 3600
+        max_investment = 200000
+        step = 5000
+        investments = range(3000, int(max_investment) + 1, step)
+
+        max_profit = 0
+        optimal_investment = 0
+        optimal_lend_apr = 0
+        optimal_utilization = 0
+        valid_investments = 0
+
+        old_full_utilization_interest = model.calculate_old_full_utilization_interest(lend_apr, utilization)
+
+        for investment in investments:
+            new_utilization = 1 - (available_liquidity + investment) / (reserve_size + investment)
+            print(f"[DEBUG] Investment={investment}, new_utilization={new_utilization:.4f}")
+            if new_utilization < 0.76:  # Условие: new_utilization >= 76%
+                print(f"[DEBUG] Пропущено: new_utilization={new_utilization:.4f} < 0.76")
+                continue
+
+            valid_investments += 1
+            new_rate_per_sec, _ = model.get_new_rate(delta_time, new_utilization, old_full_utilization_interest)
+            new_lend_apr = new_rate_per_sec * seconds_per_year * new_utilization * 100
+            daily_profit = (investment * new_lend_apr / 100) / 365.24
+
+            if daily_profit > max_profit:
+                max_profit = daily_profit
+                optimal_investment = investment
+                optimal_lend_apr = new_lend_apr
+                optimal_utilization = new_utilization
+
+        if max_profit == 0:
+            print(f"[DEBUG] Не найдено допустимых вложений для пары, valid_investments={valid_investments}")
+            return None, None, None, None
+
+        return optimal_investment, max_profit, optimal_lend_apr, optimal_utilization
+
+    # Для других значений Rate Type (например, "N/A")
+    print(f"[DEBUG] Пара отфильтрована: неподдерживаемый Rate Type={rate_type}")
+    return None, None, None, None
+
+
+def main():
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    service = Service(CHROMEDRIVER_PATH)
+    driver = webdriver.Chrome(service=service, options=options)
+
+    params = InterestRateParams()
+    model = VariableInterestRate(params)
+
+    try:
+        pair_links = get_pair_links(driver)
+        print(f"Найдено пар: {len(pair_links)}")
+
+        for url in tqdm(pair_links, desc="Обработка пар"):
+            data = fetch_metrics(driver, url)
+            optimal_investment, max_profit, optimal_lend_apr, optimal_utilization = calculate_optimal_investment(data,
+                                                                                                                 model)
+
+            rate_type = data.get("Rate Type", "N/A")
+            if (optimal_investment is not None or rate_type == "Variable V1") and data.get("Lend APR",
+                                                                                           "0") != "N/A" and data.get(
+                    "Utilization Rate", "0") != "N/A":
+                print(f"\n📄 Пара: {url} {rate_type}")
+                print(f"Старая Lend APR: {data.get('Lend APR')}")
+                if rate_type == "Variable V2" and optimal_investment is not None:
+                    print(f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%")
+                    print(f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}")
+                    print(f"Максимальный доход за 1 день: ${max_profit:,.2f}")
+                    print(f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%")
+                else:
+                    print("Новая оптимальная Lend APR: не рассчитано")
+                    print("Оптимальная сумма для вложения: не рассчитано")
+                    print("Максимальный доход за 1 день: не рассчитано")
+                    print("Новая ставка утилизации: не рассчитано")
+                for key in ["Available Liquidity", "Utilization Rate", "Lend APR", "Borrow APR", "Reserve Size",
+                            "Rate Type"]:
+                    print(f"{key}: {data.get(key)}")
+            else:
+                print(f"[DEBUG] Пара {url} пропущена")
+
+    finally:
+        driver.quit()
+
+
+if __name__ == "__main__":
+    main()
