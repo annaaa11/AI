@@ -45,6 +45,8 @@ api_key = os.getenv("GEMINI_API_KEY")
 pinecone_key = os.getenv("PINECONE_API_KEY")
 twitter_api_key = "d877c50a12614b03bc68191e2b44f3ea"
 
+
+
 # Validate API keys
 if not api_key:
     st.error("GEMINI_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
