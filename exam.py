@@ -21,7 +21,7 @@ from langgraph.prebuilt import create_react_agent
 import matplotlib.dates as mdates
 import pandas as pd
 
-# """ https://crypto-search-twitter.streamlit.app/
+# """ https://twitter-crypto.streamlit.app/
 # Этот код — веб-приложение на Streamlit для анализа твитов, связанных с криптовалютными проектами.
 # Парсит данные с CoinMarketCap: Извлекает название, символ и Twitter-аккаунт проекта по URL.
 # Собирает твиты: Использует Twitter API для поиска твитов официального аккаунта проекта и упоминаний проекта (по названию или символу).
@@ -158,20 +158,188 @@ from uuid import uuid4
 from time import sleep
 from requests.exceptions import HTTPError
 
+# def search_tweets_by_query(
+#     query: str,
+#     username: str,
+#     project_name: str,
+#     project_symbol: str,
+#     start_date: datetime,
+#     official_limit: int = 60,  # Limit for official tweets
+#     non_official_limit: int = 60,  # Limit for non-official tweets
+#     min_retweets: int = 0,
+#     min_replies: int = 0
+# ):
+#     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
+#     headers = {"x-api-key": twitter_api_key}
+#     since_str = start_date.strftime("%Y-%m-%d")
+#
+#     session = requests.Session()
+#     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+#     session.mount("https://", HTTPAdapter(max_retries=retries))
+#
+#     def fetch_paginated(query_string, is_official=False, max_tweets=60):
+#         all_tweets = []
+#         processed_keys = set()
+#         cursor = ""  # Initialize cursor as empty string for first page
+#         tweets_fetched = 0
+#
+#         while tweets_fetched < max_tweets:
+#             try:
+#                 if not is_official:
+#                     query_string = f"{query_string} -from:{username}"
+#                 params = {
+#                     "query": f"{query_string} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
+#                     "queryType": "Latest",
+#                     "limit": min(20, max_tweets - tweets_fetched),  # Respect API's max 20 per page
+#                     "cursor": cursor  # Use cursor per documentation
+#                 }
+#
+#                 st.write(f"DEBUG: Выполняется запрос: {params['query']}, cursor={cursor}, tweets_fetched={tweets_fetched}/{max_tweets}")
+#                 response = session.get(url, headers=headers, params=params, timeout=10)
+#                 response.raise_for_status()
+#                 data = response.json()
+#
+#                 tweets = []
+#                 for key in ["tweets", "data", "results"]:
+#                     if key in data:
+#                         tweets = [t for t in data[key] if t.get("type") == "tweet"]
+#                         break
+#                 st.write(f"DEBUG: Получено {len(tweets)} твитов для запроса '{query_string}', всего собрано {tweets_fetched}/{max_tweets}")
+#
+#                 for tweet in tweets:
+#                     tweet_id = str(tweet.get("id", tweet.get("id_str", str(uuid4()))))
+#                     author = tweet.get("author", {})
+#                     user = tweet.get("user", {})
+#                     screen_name = author.get("userName", user.get("username", user.get("screen_name", None)))
+#                     if not screen_name:
+#                         st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует имя пользователя")
+#                         continue
+#
+#                     unique_key = f"{tweet_id}_{screen_name}"
+#                     if unique_key in processed_keys:
+#                         st.write(f"DEBUG: Пропущен твит {tweet_id}: дубликат по ключу {unique_key}")
+#                         continue
+#                     processed_keys.add(unique_key)
+#
+#                     created_at_raw = tweet.get("createdAt") or tweet.get("created_at")
+#                     if not created_at_raw:
+#                         st.write(f"DEBUG: Пропущен твит {tweet_id}: отсутствует дата создания")
+#                         continue
+#
+#                     try:
+#                         parsed_date = pd.to_datetime(created_at_raw, utc=True, errors="raise")
+#                         created_at = parsed_date.isoformat()
+#                     except (ValueError, TypeError) as e:
+#                         st.write(f"DEBUG: Пропущен твит {tweet_id}: некорректная дата создания ({created_at_raw}), ошибка: {str(e)}")
+#                         continue
+#
+#                     public_metrics = tweet.get("public_metrics", {})
+#                     retweet_count = int(public_metrics.get("retweet_count", tweet.get("retweetCount", 0)))
+#                     reply_count = int(public_metrics.get("reply_count", tweet.get("replyCount", 0)))
+#                     view_count = int(public_metrics.get("view_count", tweet.get("viewCount", 0)))
+#
+#                     if not is_official and (retweet_count < min_retweets or reply_count < min_replies):
+#                         st.write(f"DEBUG: Пропущен твит {tweet_id}: retweet_count={retweet_count}, reply_count={reply_count} не соответствуют min_retweets={min_retweets}, min_replies={min_replies}")
+#                         continue
+#
+#                     author_type = "official" if screen_name.lower() == username.lower() else "external"
+#                     all_tweets.append({
+#                         "id_str": tweet_id,
+#                         "text": tweet.get("text", ""),
+#                         "created_at": created_at,
+#                         "user": {"screen_name": screen_name},
+#                         "public_metrics": {
+#                             "retweet_count": retweet_count,
+#                             "reply_count": reply_count,
+#                             "view_count": view_count
+#                         },
+#                         "author_type": author_type,
+#                         "project_name": project_name,
+#                         "project_symbol": project_symbol
+#                     })
+#                     tweets_fetched += 1
+#
+#                     if tweets_fetched >= max_tweets:
+#                         st.write(f"DEBUG: Достигнут лимит {max_tweets} твитов, завершение пагинации")
+#                         break
+#
+#                 has_next_page = data.get("has_next_page", False)
+#                 cursor = data.get("next_cursor", "")
+#                 if not has_next_page or cursor == "" or len(tweets) == 0:
+#                     st.write(f"DEBUG: Завершение пагинации для запроса '{query_string}': "
+#                              f"has_next_page={has_next_page}, cursor={cursor}, получено твитов={len(tweets)}")
+#                     break
+#
+#             except HTTPError as e:
+#                 if e.response.status_code == 429:
+#                     retry_after = int(e.response.headers.get("Retry-After", 60))
+#                     st.write(f"DEBUG: Достигнут лимит запросов, ожидание {retry_after} секунд")
+#                     sleep(retry_after)
+#                     continue
+#                 else:
+#                     st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
+#                     break
+#             except Exception as e:
+#                 st.error(f"Неожиданная ошибка при получении твитов для запроса '{query_string}': {e}")
+#                 break
+#
+#         return all_tweets[:max_tweets]
+#
+#     # Fetch official tweets
+#     from_query = f"from:{username}"
+#     official_tweets = fetch_paginated(from_query, is_official=True, max_tweets=official_limit)
+#     st.write(f"DEBUG: Официальные твиты ({len(official_tweets)}): {[t['id_str'] for t in official_tweets]}")
+#
+#     # Fetch non-official tweets
+#     project_name_query = f'"{project_name}"'
+#     project_symbol_query = f"${project_symbol}"
+#     keyword_query = f"{project_name_query} OR {project_symbol_query}"
+#     keyword_tweets = fetch_paginated(keyword_query, is_official=False, max_tweets=non_official_limit)
+#     st.write(f"DEBUG: Неофициальные твиты ({len(keyword_tweets)}): {[t['id_str'] for t in keyword_tweets]}")
+#
+#     # Combine tweets
+#     all_tweets = official_tweets + keyword_tweets
+#     st.write(f"DEBUG: Всего твитов после объединения: {len(all_tweets)}")
+#
+#     # Deduplicate by tweet_id
+#     unique_tweets = {}
+#     for tweet in all_tweets:
+#         tweet_id = tweet["id_str"]
+#         if tweet_id not in unique_tweets:
+#             unique_tweets[tweet_id] = tweet
+#         else:
+#             st.write(f"DEBUG: Пропущен дубликат твита {tweet_id}")
+#     all_tweets = list(unique_tweets.values())
+#     st.write(f"DEBUG: Всего уникальных твитов: {len(all_tweets)}")
+#
+#     return all_tweets
+
+# import requests
+# from requests.adapters import HTTPAdapter
+# from requests.packages.urllib3.util.retry import Retry
+# import streamlit as st
+# import pandas as pd
+# from datetime import datetime
+# from uuid import uuid4
+# from time import sleep
+# from requests.exceptions import HTTPError
+
 def search_tweets_by_query(
     query: str,
     username: str,
     project_name: str,
     project_symbol: str,
     start_date: datetime,
-    official_limit: int = 60,  # Limit for official tweets
-    non_official_limit: int = 60,  # Limit for non-official tweets
+    official_limit: int = 60,
+    non_official_limit: int = 60,
     min_retweets: int = 0,
-    min_replies: int = 0
+    min_replies: int = 0,
+    end_date: datetime = None  # Optional end date for time window
 ):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     headers = {"x-api-key": twitter_api_key}
     since_str = start_date.strftime("%Y-%m-%d")
+    until_str = end_date.strftime("%Y-%m-%d") if end_date else ""
 
     session = requests.Session()
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
@@ -180,18 +348,23 @@ def search_tweets_by_query(
     def fetch_paginated(query_string, is_official=False, max_tweets=60):
         all_tweets = []
         processed_keys = set()
-        cursor = ""  # Initialize cursor as empty string for first page
+        cursor = ""
         tweets_fetched = 0
+        retry_count = 0
+        max_retries = 5
 
-        while tweets_fetched < max_tweets:
+        while tweets_fetched < max_tweets and retry_count < max_retries:
             try:
                 if not is_official:
                     query_string = f"{query_string} -from:{username}"
+                time_filter = f"since:{since_str}"
+                if until_str:
+                    time_filter += f" until:{until_str}"
                 params = {
-                    "query": f"{query_string} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
+                    "query": f"{query_string} {time_filter} min_retweets:{min_retweets} min_replies:{min_replies}",
                     "queryType": "Latest",
-                    "limit": min(20, max_tweets - tweets_fetched),  # Respect API's max 20 per page
-                    "cursor": cursor  # Use cursor per documentation
+                    "limit": min(20, max_tweets - tweets_fetched),
+                    "cursor": cursor
                 }
 
                 st.write(f"DEBUG: Выполняется запрос: {params['query']}, cursor={cursor}, tweets_fetched={tweets_fetched}/{max_tweets}")
@@ -205,6 +378,14 @@ def search_tweets_by_query(
                         tweets = [t for t in data[key] if t.get("type") == "tweet"]
                         break
                 st.write(f"DEBUG: Получено {len(tweets)} твитов для запроса '{query_string}', всего собрано {tweets_fetched}/{max_tweets}")
+
+                if not tweets and not is_official:
+                    st.write(f"DEBUG: Пустой результат для неофициального запроса. Ответ API: {data}")
+                    # Fallback to broader query
+                    if query_string.startswith('"'):
+                        query_string = query_string.replace('"', '')  # Remove quotes for broader match
+                        st.write(f"DEBUG: Пробуем более широкий запрос: {query_string}")
+                        continue
 
                 for tweet in tweets:
                     tweet_id = str(tweet.get("id", tweet.get("id_str", str(uuid4()))))
@@ -272,12 +453,16 @@ def search_tweets_by_query(
 
             except HTTPError as e:
                 if e.response.status_code == 429:
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        st.error(f"Превышен максимальный лимит повторных попыток ({max_retries})")
+                        break
                     retry_after = int(e.response.headers.get("Retry-After", 60))
                     st.write(f"DEBUG: Достигнут лимит запросов, ожидание {retry_after} секунд")
                     sleep(retry_after)
                     continue
                 else:
-                    st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
+                    st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}, Ответ: {e.response.text}")
                     break
             except Exception as e:
                 st.error(f"Неожиданная ошибка при получении твитов для запроса '{query_string}': {e}")
@@ -291,9 +476,9 @@ def search_tweets_by_query(
     st.write(f"DEBUG: Официальные твиты ({len(official_tweets)}): {[t['id_str'] for t in official_tweets]}")
 
     # Fetch non-official tweets
-    project_name_query = f'"{project_name}"'
+    project_name_query = project_name  # Remove quotes for broader match
     project_symbol_query = f"${project_symbol}"
-    keyword_query = f"{project_name_query} OR {project_symbol_query}"
+    keyword_query = f"{project_name_query} OR {project_symbol_query} OR {username}"  # Include username as keyword
     keyword_tweets = fetch_paginated(keyword_query, is_official=False, max_tweets=non_official_limit)
     st.write(f"DEBUG: Неофициальные твиты ({len(keyword_tweets)}): {[t['id_str'] for t in keyword_tweets]}")
 
