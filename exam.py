@@ -43,7 +43,7 @@ dotenv.load_dotenv()
 # API keys
 api_key = os.getenv("GEMINI_API_KEY")
 pinecone_key = os.getenv("PINECONE_API_KEY")
-twitter_api_key = os.getenv("TWITTER_API_KEY") or "c769bb7d2f3742828d13bad15b7262d1"
+twitter_api_key = os.getenv("TWITTER_API_KEY") or "d877c50a12614b03bc68191e2b44f3ea"
 
 # Validate API keys
 if not api_key:
