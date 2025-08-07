@@ -21,7 +21,7 @@ from langgraph.prebuilt import create_react_agent
 import matplotlib.dates as mdates
 import pandas as pd
 
-# """
+# """ https://crypto-search-twitter.streamlit.app/
 # Этот код — веб-приложение на Streamlit для анализа твитов, связанных с криптовалютными проектами.
 # Парсит данные с CoinMarketCap: Извлекает название, символ и Twitter-аккаунт проекта по URL.
 # Собирает твиты: Использует Twitter API для поиска твитов официального аккаунта проекта и упоминаний проекта (по названию или символу).
@@ -147,8 +147,28 @@ def parse_coinmarketcap_project(url):
         "url": url
     }
 
-def search_tweets_by_query(query: str, username: str, project_name: str, project_symbol: str, start_date: datetime,
-                          limit: int = 60, min_retweets: int = 0, min_replies: int = 0):
+
+import requests
+from requests.adapters import HTTPAdapter
+
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+from uuid import uuid4
+from time import sleep
+from requests.exceptions import HTTPError
+
+def search_tweets_by_query(
+    query: str,
+    username: str,
+    project_name: str,
+    project_symbol: str,
+    start_date: datetime,
+    official_limit: int = 60,  # Limit for official tweets
+    non_official_limit: int = 60,  # Limit for non-official tweets
+    min_retweets: int = 0,
+    min_replies: int = 0
+):
     url = "https://api.twitterapi.io/twitter/tweet/advanced_search"
     headers = {"x-api-key": twitter_api_key}
     since_str = start_date.strftime("%Y-%m-%d")
@@ -157,26 +177,24 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount("https://", HTTPAdapter(max_retries=retries))
 
-    def fetch_paginated(query_string, is_official=False, max_tweets=limit):
+    def fetch_paginated(query_string, is_official=False, max_tweets=60):
         all_tweets = []
         processed_keys = set()
-        next_token = None
+        cursor = ""  # Initialize cursor as empty string for first page
         tweets_fetched = 0
 
         while tweets_fetched < max_tweets:
             try:
-                # Exclude official account from keyword query
                 if not is_official:
                     query_string = f"{query_string} -from:{username}"
                 params = {
                     "query": f"{query_string} since:{since_str} min_retweets:{min_retweets} min_replies:{min_replies}",
                     "queryType": "Latest",
-                    "limit": min(20, max_tweets - tweets_fetched)  # Request up to 20 tweets per call
+                    "limit": min(20, max_tweets - tweets_fetched),  # Respect API's max 20 per page
+                    "cursor": cursor  # Use cursor per documentation
                 }
-                if next_token:
-                    params["next_token"] = next_token
 
-                st.write(f"DEBUG: Выполняется запрос: {params['query']}, next_token={next_token}")
+                st.write(f"DEBUG: Выполняется запрос: {params['query']}, cursor={cursor}, tweets_fetched={tweets_fetched}/{max_tweets}")
                 response = session.get(url, headers=headers, params=params, timeout=10)
                 response.raise_for_status()
                 data = response.json()
@@ -186,7 +204,7 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     if key in data:
                         tweets = [t for t in data[key] if t.get("type") == "tweet"]
                         break
-                st.write(f"DEBUG: Получено {len(tweets)} твитов для запроса '{query_string}'")
+                st.write(f"DEBUG: Получено {len(tweets)} твитов для запроса '{query_string}', всего собрано {tweets_fetched}/{max_tweets}")
 
                 for tweet in tweets:
                     tweet_id = str(tweet.get("id", tweet.get("id_str", str(uuid4()))))
@@ -220,7 +238,6 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     reply_count = int(public_metrics.get("reply_count", tweet.get("replyCount", 0)))
                     view_count = int(public_metrics.get("view_count", tweet.get("viewCount", 0)))
 
-                    # Client-side filtering for non-official tweets
                     if not is_official and (retweet_count < min_retweets or reply_count < min_replies):
                         st.write(f"DEBUG: Пропущен твит {tweet_id}: retweet_count={retweet_count}, reply_count={reply_count} не соответствуют min_retweets={min_retweets}, min_replies={min_replies}")
                         continue
@@ -242,28 +259,42 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
                     })
                     tweets_fetched += 1
 
-                next_token = data.get("next_token")
-                if not next_token or len(tweets) == 0:
-                    st.write(f"DEBUG: Нет следующей страницы для запроса '{query_string}'")
+                    if tweets_fetched >= max_tweets:
+                        st.write(f"DEBUG: Достигнут лимит {max_tweets} твитов, завершение пагинации")
+                        break
+
+                has_next_page = data.get("has_next_page", False)
+                cursor = data.get("next_cursor", "")
+                if not has_next_page or cursor == "" or len(tweets) == 0:
+                    st.write(f"DEBUG: Завершение пагинации для запроса '{query_string}': "
+                             f"has_next_page={has_next_page}, cursor={cursor}, получено твитов={len(tweets)}")
                     break
 
+            except HTTPError as e:
+                if e.response.status_code == 429:
+                    retry_after = int(e.response.headers.get("Retry-After", 60))
+                    st.write(f"DEBUG: Достигнут лимит запросов, ожидание {retry_after} секунд")
+                    sleep(retry_after)
+                    continue
+                else:
+                    st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
+                    break
             except Exception as e:
-                st.error(f"Ошибка при получении твитов для запроса '{query_string}': {e}")
+                st.error(f"Неожиданная ошибка при получении твитов для запроса '{query_string}': {e}")
                 break
 
         return all_tweets[:max_tweets]
 
     # Fetch official tweets
     from_query = f"from:{username}"
-    official_tweets = fetch_paginated(from_query, is_official=True, max_tweets=limit)
+    official_tweets = fetch_paginated(from_query, is_official=True, max_tweets=official_limit)
     st.write(f"DEBUG: Официальные твиты ({len(official_tweets)}): {[t['id_str'] for t in official_tweets]}")
 
     # Fetch non-official tweets
-    remaining_limit = limit - len(official_tweets)
     project_name_query = f'"{project_name}"'
     project_symbol_query = f"${project_symbol}"
     keyword_query = f"{project_name_query} OR {project_symbol_query}"
-    keyword_tweets = fetch_paginated(keyword_query, is_official=False, max_tweets=remaining_limit)
+    keyword_tweets = fetch_paginated(keyword_query, is_official=False, max_tweets=non_official_limit)
     st.write(f"DEBUG: Неофициальные твиты ({len(keyword_tweets)}): {[t['id_str'] for t in keyword_tweets]}")
 
     # Combine tweets
@@ -282,7 +313,6 @@ def search_tweets_by_query(query: str, username: str, project_name: str, project
     st.write(f"DEBUG: Всего уникальных твитов: {len(all_tweets)}")
 
     return all_tweets
-
 
 # Function to search documents (unchanged as requested)
 def doc_ser(user_text: str):
