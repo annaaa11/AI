@@ -2027,6 +2027,11 @@ from datetime import datetime, timezone
 # if __name__ == "__main__":
 #     main()
 
+#убери вывод сообщения в Telegram для всех пар, включая низкие Lend APR, пусть будет как до этого - вывод расчета по большой доходности
+
+
+
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
