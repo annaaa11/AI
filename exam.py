@@ -324,7 +324,7 @@ def search_tweets_by_query(
     project_name_query = project_name.lower()  # Use lowercase for broader match
     project_symbol_query = project_symbol  # Remove $ for broader match
     keyword_query = f"{project_name_query} OR {project_symbol_query} OR {username.lower()}"
-    keyword_tweets = fetch_paginated(keyword_query, is_official=False, max_tweets=non_official_limit)
+    keyword_tweets = fetch_paginated(keyword_query, is_official=False, max_tweets=30)
 
     # Fallback queries if no non-official tweets found
     if not keyword_tweets:
