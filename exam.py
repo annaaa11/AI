@@ -20,296 +20,136 @@ from pinecone import Pinecone, ServerlessSpec
 from langgraph.prebuilt import create_react_agent
 import matplotlib.dates as mdates
 import pandas as pd
-
-# """ https://twitter-crypto.streamlit.app/
-# Этот код — веб-приложение на Streamlit для анализа твитов, связанных с криптовалютными проектами.
-# Парсит данные с CoinMarketCap: Извлекает название, символ и Twitter-аккаунт проекта по URL.
-# Собирает твиты: Использует Twitter API для поиска твитов официального аккаунта проекта и упоминаний проекта (по названию или символу).
-# Хранит данные в Pinecone: Сохраняет твиты в векторной базе с эмбеддингами (GoogleGenerativeAIEmbeddings) для поиска.
-# Анализирует твиты: Визуализирует статистику (просмотры, ретвиты, ответы) официальных и сторонних твитов с помощью графиков (matplotlib).
-# Предоставляет чат-бот: Использует LangChain и Google Gemini для ответов на вопросы с учетом данных из Pinecone.
-#
-# Помогает анализировать активность и вовлеченность в Twitter для криптопроектов, предоставляя визуальную аналитику и поиск по твитам.
-#
-# """
-
-
-# Apply nest_asyncio to handle async issues in Streamlit
-nest_asyncio.apply()
-
-# Load environment variables
-dotenv.load_dotenv()
-
-# API keys
-api_key = os.getenv("GEMINI_API_KEY")
-pinecone_key = os.getenv("PINECONE_API_KEY")
-twitter_api_key = "d877c50a12614b03bc68191e2b44f3ea"
-
-
-
-# Validate API keys
-if not api_key:
-    st.error("GEMINI_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
-    st.stop()
-if not pinecone_key:
-    st.error("PINECONE_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
-    st.stop()
-if not twitter_api_key:
-    st.warning("TWITTER_API_KEY is not set, using default key.")
-
-# Initialize embeddings and Pinecone
-try:
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004",
-        google_api_key=api_key
-    )
-except Exception as e:
-    st.error(f"Failed to initialize GoogleGenerativeAIEmbeddings: {str(e)}")
-    st.stop()
-
-try:
-    pc = Pinecone(api_key=pinecone_key)
-except Exception as e:
-    st.error(f"Failed to initialize Pinecone: {str(e)}")
-    st.stop()
-
-index_name = "task1"
-
-try:
-    if not pc.has_index(index_name):
-        pc.create_index(
-            name=index_name,
-            dimension=768,
-            metric="cosine",
-            spec=ServerlessSpec(cloud="aws", region="us-east-1")
-        )
-except Exception as e:
-    st.error(f"Failed to create Pinecone index: {str(e)}")
-    st.stop()
-
-index = pc.Index(index_name)
-vector_store = PineconeVectorStore(index=index, embedding=embeddings)
-
-# JSON for storing IDs
-json_path = "data_ai.json"
-if os.path.exists(json_path):
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            id_data = json.load(f)
-    except Exception as e:
-        st.error(f"Failed to read JSON file {json_path}: {str(e)}")
-        id_data = {}
-else:
-    id_data = {}
-
-# Function to parse CoinMarketCap project page
-def parse_coinmarketcap_project(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        st.error(f"Ошибка при запросе CoinMarketCap {url}: {str(e)}")
-        return None
-
-    soup = BeautifulSoup(response.text, "lxml")
-
-    # Name and symbol: parse from <h1>
-    name = "?"
-    symbol = "?"
-    h1 = soup.find("h1")
-    if h1:
-        lines = [line.strip() for line in h1.stripped_strings if line.strip()]
-        filtered = [line for line in lines if line.lower() != 'price' and line != '']
-        if len(filtered) >= 2:
-            name = filtered[0]
-            symbol = filtered[1]
-
-    # Twitter link
-    twitter_link = None
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "twitter.com" in href or "x.com" in href:
-            twitter_link = href.strip()
-            break
-
-    if twitter_link and twitter_link.startswith("//"):
-        twitter_link = "https:" + twitter_link
-    elif twitter_link and "x.com" in twitter_link:
-        twitter_link = twitter_link.replace("x.com", "twitter.com")
-
-    st.write(f"Parsed CoinMarketCap: name={name}, symbol={symbol}, twitter={twitter_link}")
-    return {
-        "name": name,
-        "symbol": symbol,
-        "twitter": twitter_link or "Not found",
-        "url": url
-    }
-
-
-import os
-import json
-import dotenv
-import streamlit as st
-from uuid import uuid4
-from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import nest_asyncio
-from bs4 import BeautifulSoup
-import matplotlib.pyplot as plt
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_core.documents import Document
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_pinecone import PineconeVectorStore
-from pinecone import Pinecone, ServerlessSpec
-from langgraph.prebuilt import create_react_agent
-import matplotlib.dates as mdates
-import pandas as pd
-
-# """ https://twitter-crypto.streamlit.app/
-# Этот код — веб-приложение на Streamlit для анализа твитов, связанных с криптовалютными проектами.
-# Парсит данные с CoinMarketCap: Извлекает название, символ и Twitter-аккаунт проекта по URL.
-# Собирает твиты: Использует Twitter API для поиска твитов официального аккаунта проекта и упоминаний проекта (по названию или символу).
-# Хранит данные в Pinecone: Сохраняет твиты в векторной базе с эмбеддингами (GoogleGenerativeAIEmbeddings) для поиска.
-# Анализирует твиты: Визуализирует статистику (просмотры, ретвиты, ответы) официальных и сторонних твитов с помощью графиков (matplotlib).
-# Предоставляет чат-бот: Использует LangChain и Google Gemini для ответов на вопросы с учетом данных из Pinecone.
-#
-# Помогает анализировать активность и вовлеченность в Twitter для криптопроектов, предоставляя визуальную аналитику и поиск по твитам.
-#
-# """
-
-
-# Apply nest_asyncio to handle async issues in Streamlit
-nest_asyncio.apply()
-
-# Load environment variables
-dotenv.load_dotenv()
-
-# API keys
-api_key = os.getenv("GEMINI_API_KEY")
-pinecone_key = os.getenv("PINECONE_API_KEY")
-twitter_api_key = "d877c50a12614b03bc68191e2b44f3ea"
-
-
-
-# Validate API keys
-if not api_key:
-    st.error("GEMINI_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
-    st.stop()
-if not pinecone_key:
-    st.error("PINECONE_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
-    st.stop()
-if not twitter_api_key:
-    st.warning("TWITTER_API_KEY is not set, using default key.")
-
-# Initialize embeddings and Pinecone
-try:
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/text-embedding-004",
-        google_api_key=api_key
-    )
-except Exception as e:
-    st.error(f"Failed to initialize GoogleGenerativeAIEmbeddings: {str(e)}")
-    st.stop()
-
-try:
-    pc = Pinecone(api_key=pinecone_key)
-except Exception as e:
-    st.error(f"Failed to initialize Pinecone: {str(e)}")
-    st.stop()
-
-index_name = "task1"
-
-try:
-    if not pc.has_index(index_name):
-        pc.create_index(
-            name=index_name,
-            dimension=768,
-            metric="cosine",
-            spec=ServerlessSpec(cloud="aws", region="us-east-1")
-        )
-except Exception as e:
-    st.error(f"Failed to create Pinecone index: {str(e)}")
-    st.stop()
-
-index = pc.Index(index_name)
-vector_store = PineconeVectorStore(index=index, embedding=embeddings)
-
-# JSON for storing IDs
-json_path = "data_ai.json"
-if os.path.exists(json_path):
-    try:
-        with open(json_path, "r", encoding="utf-8") as f:
-            id_data = json.load(f)
-    except Exception as e:
-        st.error(f"Failed to read JSON file {json_path}: {str(e)}")
-        id_data = {}
-else:
-    id_data = {}
-
-# Function to parse CoinMarketCap project page
-def parse_coinmarketcap_project(url):
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-    except requests.RequestException as e:
-        st.error(f"Ошибка при запросе CoinMarketCap {url}: {str(e)}")
-        return None
-
-    soup = BeautifulSoup(response.text, "lxml")
-
-    # Name and symbol: parse from <h1>
-    name = "?"
-    symbol = "?"
-    h1 = soup.find("h1")
-    if h1:
-        lines = [line.strip() for line in h1.stripped_strings if line.strip()]
-        filtered = [line for line in lines if line.lower() != 'price' and line != '']
-        if len(filtered) >= 2:
-            name = filtered[0]
-            symbol = filtered[1]
-
-    # Twitter link
-    twitter_link = None
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "twitter.com" in href or "x.com" in href:
-            twitter_link = href.strip()
-            break
-
-    if twitter_link and twitter_link.startswith("//"):
-        twitter_link = "https:" + twitter_link
-    elif twitter_link and "x.com" in twitter_link:
-        twitter_link = twitter_link.replace("x.com", "twitter.com")
-
-    st.write(f"Parsed CoinMarketCap: name={name}, symbol={symbol}, twitter={twitter_link}")
-    return {
-        "name": name,
-        "symbol": symbol,
-        "twitter": twitter_link or "Not found",
-        "url": url
-    }
-
-
-import requests
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-from uuid import uuid4
 from time import sleep
-from requests.exceptions import HTTPError
+
+# """ https://twitter-crypto.streamlit.app/
+# Этот код — веб-приложение на Streamlit для анализа твитов, связанных с криптовалютными проектами.
+# Парсит данные с CoinMarketCap: Извлекает название, символ и Twitter-аккаунт проекта по URL.
+# Собирает твиты: Использует Twitter API для поиска твитов официального аккаунта проекта и упоминаний проекта (по названию или символу).
+# Хранит данные в Pinecone: Сохраняет твиты в векторной базе с эмбеддингами (GoogleGenerativeAIEmbeddings) для поиска.
+# Анализирует твиты: Визуализирует статистику (просмотры, ретвиты, ответы) официальных и сторонних твитов с помощью графиков (matplotlib).
+# Предоставляет чат-бот: Использует LangChain и Google Gemini для ответов на вопросы с учетом данных из Pinecone.
+#
+# Помогает анализировать активность и вовлеченность в Twitter для криптопроектов, предоставляя визуальную аналитику и поиск по твитам.
+#
+# """
+
+
+# Apply nest_asyncio to handle async issues in Streamlit
+nest_asyncio.apply()
+
+# Load environment variables
+dotenv.load_dotenv()
+
+# API keys
+api_key = os.getenv("GEMINI_API_KEY")
+pinecone_key = os.getenv("PINECONE_API_KEY")
+twitter_api_key = "d877c50a12614b03bc68191e2b44f3ea"
+
+
+
+# Validate API keys
+if not api_key:
+    st.error("GEMINI_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
+    st.stop()
+if not pinecone_key:
+    st.error("PINECONE_API_KEY is not set. Please add it to the .env file or Streamlit Cloud Secrets.")
+    st.stop()
+if not twitter_api_key:
+    st.warning("TWITTER_API_KEY is not set, using default key.")
+
+# Initialize embeddings and Pinecone
+try:
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/text-embedding-004",
+        google_api_key=api_key
+    )
+except Exception as e:
+    st.error(f"Failed to initialize GoogleGenerativeAIEmbeddings: {str(e)}")
+    st.stop()
+
+try:
+    pc = Pinecone(api_key=pinecone_key)
+except Exception as e:
+    st.error(f"Failed to initialize Pinecone: {str(e)}")
+    st.stop()
+
+index_name = "task1"
+
+try:
+    if not pc.has_index(index_name):
+        pc.create_index(
+            name=index_name,
+            dimension=768,
+            metric="cosine",
+            spec=ServerlessSpec(cloud="aws", region="us-east-1")
+        )
+except Exception as e:
+    st.error(f"Failed to create Pinecone index: {str(e)}")
+    st.stop()
+
+index = pc.Index(index_name)
+vector_store = PineconeVectorStore(index=index, embedding=embeddings)
+
+# JSON for storing IDs
+json_path = "data_ai.json"
+if os.path.exists(json_path):
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            id_data = json.load(f)
+    except Exception as e:
+        st.error(f"Failed to read JSON file {json_path}: {str(e)}")
+        id_data = {}
+else:
+    id_data = {}
+
+# Function to parse CoinMarketCap project page
+def parse_coinmarketcap_project(url):
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        st.error(f"Ошибка при запросе CoinMarketCap {url}: {str(e)}")
+        return None
+
+    soup = BeautifulSoup(response.text, "lxml")
+
+    # Name and symbol: parse from <h1>
+    name = "?"
+    symbol = "?"
+    h1 = soup.find("h1")
+    if h1:
+        lines = [line.strip() for line in h1.stripped_strings if line.strip()]
+        filtered = [line for line in lines if line.lower() != 'price' and line != '']
+        if len(filtered) >= 2:
+            name = filtered[0]
+            symbol = filtered[1]
+
+    # Twitter link
+    twitter_link = None
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if "twitter.com" in href or "x.com" in href:
+            twitter_link = href.strip()
+            break
+
+    if twitter_link and twitter_link.startswith("//"):
+        twitter_link = "https:" + twitter_link
+    elif twitter_link and "x.com" in twitter_link:
+        twitter_link = twitter_link.replace("x.com", "twitter.com")
+
+    st.write(f"Parsed CoinMarketCap: name={name}, symbol={symbol}, twitter={twitter_link}")
+    return {
+        "name": name,
+        "symbol": symbol,
+        "twitter": twitter_link or "Not found",
+        "url": url
+    }
+
 
 
 def search_tweets_by_query(
