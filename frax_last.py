@@ -780,7 +780,7 @@ def process_pairs():
                             processed_urls.add(url)
                         else:
                             logger.info(f"Пара {url} не прошла фильтры: {data}")
-                            send_to_telegram(f"Пара {collateral} ({url}) не прошла фильтры: {data}")
+                            #send_to_telegram(f"Пара {collateral} ({url}) не прошла фильтры: {data}")
 
                     peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
                     logger.info(f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
