@@ -570,7 +570,7 @@ def process_pairs():
                                     send_to_telegram(message)
                                     processed_urls.add(url)
 
-  #############
+                    #############
 
                     peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
                     logger.info(
