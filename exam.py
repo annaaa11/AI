@@ -623,6 +623,7 @@ if st.button("Загрузить твиты"):
                     existing_data.update(new_id_data)
                     with open(json_path, "w", encoding="utf-8") as jf:
                         json.dump(existing_data, jf, ensure_ascii=False)
+
                     st.write(f"DEBUG: JSON обновлен. Новых записей: {len(new_id_data)}")
                 except Exception as e:
                     st.error(f"Failed to update JSON file: {str(e)}")
