@@ -172,6 +172,7 @@ def search_tweets_by_query(
     session = requests.Session()
     retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount("https://", HTTPAdapter(max_retries=retries))
+    #max_tweets = 120 - важно
 
     def fetch_paginated(query_string, is_official=False, max_tweets=120, use_until=True):
         all_tweets = []
