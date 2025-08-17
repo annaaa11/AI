@@ -365,17 +365,20 @@ def calculate_optimal_investment(data, v1_model, v2_model, driver, delta_time=86
         available_liquidity = parse_dollar_amount(data.get("Available Liquidity", "0"))
         reserve_size = parse_dollar_amount(data.get("Reserve Size", "0"), is_reserve_size=True)
         rate_type = data.get("Rate Type", "N/A")
-        pair_address = data.get("Link", "").split("/")[-1]
+        pair_address = data.get("Link", "").split("/")[-1].lower()  # Приводим к нижнему регистру
 
         # Для пары 0xDbe88DBAc39263c47629ebbA02b3eF4cf0752A72 добавляем ставку Fraxlend V1 FRAX/FXS
         fraxlend_rate = 0.0
-        if pair_address == "0xDbe88DBAc39263c47629ebbA02b3eF4cf0752A72":
+        if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":  # Сравниваем в нижнем регистре
             fraxlend_rate = fetch_fraxlend_v1_frax_fxs_rate(driver)
             lend_apr += fraxlend_rate
-            logger.info(f"Добавлена ставка Fraxlend V1 FRAX/FXS ({fraxlend_rate}%) к Lend APR для пары {pair_address}. Новый Lend APR: {lend_apr}%")
+            logger.info(f"Добавлена ставка Fraxlend V1 FRAX/FXS ({fraxlend_rate:.2f}%) к Lend APR для пары {pair_address}. Новый Lend APR: {lend_apr:.2f}%")
+            if fraxlend_rate == 0.0:
+                logger.warning(f"Ставка Fraxlend V1 FRAX/FXS не получена для пары {pair_address}")
+                send_to_telegram(f"Предупреждение: Не удалось получить ставку Fraxlend V1 FRAX/FXS для пары {pair_address}")
 
-        logger.info(
-            f"Распарсенные данные: Lend APR={lend_apr}, Utilization={utilization}, Available Liquidity={available_liquidity}, Reserve Size={reserve_size}, Rate Type={rate_type}, Fraxlend Rate={fraxlend_rate}%")
+        #logger.info(
+            #f"Распарсенные данные: Lend APR={lend_apr:.2f}, Utilization={utilization:.4f}, Available Liquidity={available _(available_liquidity), Reserve Size={reserve_size}, Rate Type={rate_type}, Fraxlend Rate={fraxlend_rate:.2f}%")
     except Exception as e:
         logger.error(f"Ошибка парсинга данных для {data.get('Link')}: {e}")
         send_to_telegram(f"Ошибка парсинга данных для {data.get('Link')}: {e}")
@@ -383,10 +386,10 @@ def calculate_optimal_investment(data, v1_model, v2_model, driver, delta_time=86
 
     # Фильтрация: Lend APR > MIN_LEND_APR_THRESHOLD, Utilization Rate < 101%, Reserve Size != 0
     if lend_apr <= MIN_LEND_APR_THRESHOLD:
-        logger.info(f"Пара отфильтрована: {data.get('Link')} (Lend APR={lend_apr} <= {MIN_LEND_APR_THRESHOLD}%)")
+        logger.info(f"Пара отфильтрована: {data.get('Link')} (Lend APR={lend_apr:.2f} <= {MIN_LEND_APR_THRESHOLD}%)")
         return None, None, None, None, fraxlend_rate
     if utilization >= 1.01:
-        logger.info(f"Пара отфильтрована: {data.get('Link')} (Utilization Rate={utilization*100}% >= 101%)")
+        logger.info(f"Пара отфильтрована: {data.get('Link')} (Utilization Rate={utilization*100:.2f}% >= 101%)")
         return None, None, None, None, fraxlend_rate
     if reserve_size == 0:
         logger.info(f"Пара отфильтрована: {data.get('Link')} (Reserve Size={reserve_size} == 0)")
@@ -416,7 +419,7 @@ def calculate_optimal_investment(data, v1_model, v2_model, driver, delta_time=86
             new_rate_per_sec, _ = v2_model.get_new_rate(delta_time, new_utilization, old_full_utilization_interest)
             new_lend_apr = new_rate_per_sec * seconds_per_year * new_utilization * 100
             # Добавляем Fraxlend ставку к новому Lend APR для указанной пары
-            if pair_address == "0xDbe88DBAc39263c47629ebbA02b3eF4cf0752A72":
+            if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
                 new_lend_apr += fraxlend_rate
             daily_profit = (investment * new_lend_apr / 100) / 365.24
 
@@ -433,7 +436,7 @@ def calculate_optimal_investment(data, v1_model, v2_model, driver, delta_time=86
             valid_investments += 1
             new_lend_apr = v1_model.get_new_lend_apr(delta_time, new_utilization, lend_apr, utilization)
             # Добавляем Fraxlend ставку к новому Lend APR для указанной пары
-            if pair_address == "0xDbe88DBAc39263c47629ebbA02b3eF4cf0752A72":
+            if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
                 new_lend_apr += fraxlend_rate
             daily_profit = (investment * new_lend_apr / 100) / 365.24
 
@@ -777,7 +780,7 @@ def process_pairs():
 
                         rate_type = data.get("Rate Type", "N/A")
                         collateral = data.get("Collateral", "N/A")
-                        pair_address = url.split("/")[-1]
+                        pair_address = url.split("/")[-1].lower()  # Приводим к нижнему регистру
                         if optimal_investment is not None:
                             timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                             message = (
@@ -786,8 +789,9 @@ def process_pairs():
                                 f"Старая Lend APR: {data.get('Lend APR')}\n"
                                 f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%\n"
                             )
-                            if pair_address == "0xDbe88DBAc39263c47629ebbA02b3eF4cf0752A72":
+                            if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
                                 message += f"Fraxlend V1 FRAX/FXS Rate: {fraxlend_rate:.2f}%\n"
+                                logger.info(f"Добавлена строка Fraxlend Rate ({fraxlend_rate:.2f}%) в сообщение для пары {pair_address}")
                             message += (
                                 f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
                                 f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
@@ -802,6 +806,8 @@ def process_pairs():
                             processed_urls.add(url)
                         else:
                             logger.info(f"Пара {url} не прошла фильтры: {data}")
+                            if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
+                                logger.info(f"Пара {pair_address} не прошла фильтры, но Fraxlend Rate={fraxlend_rate:.2f}%")
 
                     peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
                     logger.info(f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
@@ -842,8 +848,6 @@ def process_pairs():
                 peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
                 logger.info(
                     f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
-
-
 def main():
     logger.info("Запуск Background Worker")
     send_to_telegram("Тест: Background Worker запущен")
