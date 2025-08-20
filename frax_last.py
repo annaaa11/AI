@@ -600,6 +600,7 @@ def process_pairs():
 
             pair_links = get_pair_links(driver)
             bonus = get_fraxlend_fxs_lower_bound(driver)
+            logger.info(f"Bonus> {bonus}")
             logger.info(f"Полученные пары: {pair_links}")
             if driver:
                 try:
