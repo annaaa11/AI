@@ -429,27 +429,66 @@ def get_fraxlend_fxs_lower_bound(chromedriver_path: str) -> float:
     driver.get(url)
 
     try:
-        # ✅ ждем появления текста про FRAX/FXS
-        WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located(
-                (By.XPATH, "//*[contains(text(), 'FRAX') and contains(text(), 'FXS')]")
-            )
-        )
 
-        # Берем HTML после загрузки
-        html = driver.page_source
+        time.sleep(5)
+         # Wait for dynamic content
 
-        import re
-        match = re.search(r'(\d+(\.\d+)?)%\s*-\s*(\d+(\.\d+)?)%', html)
-        if match:
-            return float(match.group(1))  # нижняя граница
+        # Parse page source
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        driver.quit()
+
+        # Search for target text
+        target_text = re.compile(r"Fraxlend\s*V1\s*FRAX/FXS", re.IGNORECASE)
+        fees_range = None
+
+        # Find elements containing the target text
+        for element in soup.find_all(string=target_text):
+            parent = element.find_parent()
+            if parent:
+                # Search for percentage range in nearby elements
+                for sibling in parent.find_all_next(string=True, limit=10):
+                    if re.search(r'\d+\.\d+%\s*-\s*\d+\.\d+%', sibling):
+                        fees_range = sibling.strip()
+                        break
+                if fees_range:
+                    break
+
+        if fees_range:
+            match = re.search(r'(\d+\.\d+)%\s*-\s*\d+\.\d+%', fees_range)
+            if match:
+                return float(match.group(1))
+                # return f"Lower bound for FXS (Fraxlend V1 FRAX/FXS): {float(match.group(1))}%"
+            else:
+                return 0.0
+                # return "Could not extract lower bound from percentage range"
         else:
             return 0.0
-
-
+            # return f"Could not find 'Fraxlend V1 FRAX/FXS' or associated fees/rewards on {url}"
 
     except Exception as e:
-        driver.quit()
+        return 0.0
+
+    #     # ✅ ждем появления текста про FRAX/FXS
+    #     WebDriverWait(driver, 30).until(
+    #         EC.presence_of_element_located(
+    #             (By.XPATH, "//*[contains(text(), 'FRAX') and contains(text(), 'FXS')]")
+    #         )
+    #     )
+    #
+    #     # Берем HTML после загрузки
+    #     html = driver.page_source
+    #
+    #     import re
+    #     match = re.search(r'(\d+(\.\d+)?)%\s*-\s*(\d+(\.\d+)?)%', html)
+    #     if match:
+    #         return float(match.group(1))  # нижняя граница
+    #     else:
+    #         return 0.0
+    #
+    #
+    #
+    # except Exception as e:
+    #     driver.quit()
 
 
 # def get_fraxlend_fxs_lower_bound(driver):
