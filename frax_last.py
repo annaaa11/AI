@@ -633,7 +633,7 @@ def process_pairs():
                                 f"Rate Type: {rate_type}"
                             )
                             if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
-                                bonus = get_fraxlend_fxs_lower_bound()
+                                bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
                                 message += f"+{bonus}\n"
                             send_to_telegram(message)
                             processed_urls.add(url)
