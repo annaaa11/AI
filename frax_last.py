@@ -27,7 +27,7 @@ import re
 import time
 
 
-MIN_LEND_APR_THRESHOLD = 7 # Пороговая ставка Lend APR для фильтрации (в процентах)
+MIN_LEND_APR_THRESHOLD = 6 # Пороговая ставка Lend APR для фильтрации (в процентах)
 
 
 # Настройка логирования
@@ -436,11 +436,11 @@ def calculate_optimal_investment(data, v1_model, v2_model, driver, delta_time=86
 
         if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":  # Сравниваем в нижнем регистре
             fraxlend_rate = fetch_fraxlend_v1_frax_fxs_rate(driver)
-            lend_apr += fraxlend_rate
-            logger.info(f"Добавлена ставка Fraxlend V1 FRAX/FXS ({fraxlend_rate:.2f}%) к Lend APR для пары {pair_address}. Новый Lend APR: {lend_apr:.2f}%")
-            if fraxlend_rate == 0.0:
-                logger.warning(f"Ставка Fraxlend V1 FRAX/FXS не получена для пары {pair_address}")
-                send_to_telegram(f"Предупреждение: Не удалось получить ставку Fraxlend V1 FRAX/FXS для пары {pair_address}")
+            #lend_apr += fraxlend_rate
+            #logger.info(f"Добавлена ставка Fraxlend V1 FRAX/FXS ({fraxlend_rate:.2f}%) к Lend APR для пары {pair_address}. Новый Lend APR: {lend_apr:.2f}%")
+            #if fraxlend_rate == 0.0:
+            #    logger.warning(f"Ставка Fraxlend V1 FRAX/FXS не получена для пары {pair_address}")
+            #   send_to_telegram(f"Предупреждение: Не удалось получить ставку Fraxlend V1 FRAX/FXS для пары {pair_address}")
 
         #logger.info(
             #f"Распарсенные данные: Lend APR={lend_apr:.2f}, Utilization={utilization:.4f}, Available Liquidity={available _(available_liquidity), Reserve Size={reserve_size}, Rate Type={rate_type}, Fraxlend Rate={fraxlend_rate:.2f}%")
