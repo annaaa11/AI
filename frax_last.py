@@ -27,7 +27,7 @@ import re
 import time
 
 
-MIN_LEND_APR_THRESHOLD = 15  # Пороговая ставка Lend APR для фильтрации (в процентах)
+MIN_LEND_APR_THRESHOLD = 10 # Пороговая ставка Lend APR для фильтрации (в процентах)
 
 
 # Настройка логирования
