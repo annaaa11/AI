@@ -17,6 +17,7 @@ import psutil
 import subprocess
 import re
 
+MIN_APR = 6 #порог для ставки land APR
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
@@ -286,8 +287,8 @@ def calculate_optimal_investment(data, v1_model, v2_model, delta_time=86400.0):
         send_to_telegram(f"Ошибка парсинга данных для {data.get('Link')}: {e}")
         return None, None, None, None
 
-    # Фильтрация: Lend APR > 20%, Utilization Rate < 101%, Reserve Size != 0
-    if lend_apr <= 20:
+    # Фильтрация: Lend APR > 6%, Utilization Rate < 101%, Reserve Size != 0
+    if lend_apr <= MIN_APR:
         logger.info(f"Пара отфильтрована: {data.get('Link')} (Lend APR={lend_apr} <= 20%)")
         return None, None, None, None
     if utilization >= 1.01:
