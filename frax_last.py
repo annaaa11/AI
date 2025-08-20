@@ -446,8 +446,10 @@ def get_fraxlend_fxs_lower_bound(chromedriver_path: str) -> float:
         else:
             return 0.0
 
-    finally:
-        driver.quit()
+
+
+    except Exception as e:
+        return 0.0
 
 
 # def get_fraxlend_fxs_lower_bound(driver):
