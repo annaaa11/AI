@@ -397,55 +397,108 @@ def kill_chromedriver():
     except Exception as e:
         logger.error(f"Ошибка при завершении chromedriver: {type(e).__name__}: {e}")
 
-def get_fraxlend_fxs_lower_bound(driver):
+chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+
+def get_driver(chromedriver_path: str):
+    options = webdriver.ChromeOptions()
+
+    # 🔹 Headless режим (новый движок, иначе сайт может не дорисовать контент)
+    options.add_argument("--headless=new")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+
+    # 🔹 Размер окна (иначе часть элементов может не отрисоваться)
+    options.add_argument("--window-size=1920,1080")
+
+    # 🔹 Настоящий User-Agent
+    options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/115.0 Safari/537.36"
+    )
+
+    driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
+    return driver
+
+
+def get_fraxlend_fxs_lower_bound(chromedriver_path: str) -> float:
+    url = "https://app.frax.finance/staking/overview"
+    driver = get_driver(chromedriver_path)
+    driver.get(url)
+
     try:
-        # Set up Selenium WebDriver
-        url = "https://app.frax.finance/staking/overview"
-        # options = webdriver.ChromeOptions()
-        # options.add_argument('--headless')
-        # options.add_argument(
-        #     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-        # driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        # ✅ ждем появления текста про FRAX/FXS
+        WebDriverWait(driver, 30).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//*[contains(text(), 'FRAX') and contains(text(), 'FXS')]")
+            )
+        )
 
-        # Load the page
-        driver.get(url)
-        time.sleep(5)  # Wait for dynamic content
+        # Берем HTML после загрузки
+        html = driver.page_source
 
-        # Parse page source
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        #driver.quit()
-
-        # Search for target text
-        target_text = re.compile(r"Fraxlend\s*V1\s*FRAX/FXS", re.IGNORECASE)
-        fees_range = None
-
-        # Find elements containing the target text
-        for element in soup.find_all(string=target_text):
-            parent = element.find_parent()
-            if parent:
-                # Search for percentage range in nearby elements
-                for sibling in parent.find_all_next(string=True, limit=10):
-                    if re.search(r'\d+\.\d+%\s*-\s*\d+\.\d+%', sibling):
-                        fees_range = sibling.strip()
-                        break
-                if fees_range:
-                    break
-
-        if fees_range:
-            match = re.search(r'(\d+\.\d+)%\s*-\s*\d+\.\d+%', fees_range)
-            if match:
-                return float(match.group(1))
-                #return f"Lower bound for FXS (Fraxlend V1 FRAX/FXS): {float(match.group(1))}%"
-            else:
-                return 0.0
-                #return "Could not extract lower bound from percentage range"
+        import re
+        match = re.search(r'(\d+(\.\d+)?)%\s*-\s*(\d+(\.\d+)?)%', html)
+        if match:
+            return float(match.group(1))  # нижняя граница
         else:
             return 0.0
-            #return f"Could not find 'Fraxlend V1 FRAX/FXS' or associated fees/rewards on {url}"
 
-    except Exception as e:
-        return 0.0
-        #return f"An error occurred: {e}"
+    finally:
+        driver.quit()
+
+
+# def get_fraxlend_fxs_lower_bound(driver):
+#     try:
+#         # Set up Selenium WebDriver
+#         url = "https://app.frax.finance/staking/overview"
+#         # options = webdriver.ChromeOptions()
+#         # options.add_argument('--headless')
+#         # options.add_argument(
+#         #     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+#         # driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+#
+#         # Load the page
+#         driver.get(url)
+#         time.sleep(5)  # Wait for dynamic content
+#
+#         # Parse page source
+#         soup = BeautifulSoup(driver.page_source, 'html.parser')
+#         #driver.quit()
+#
+#         # Search for target text
+#         target_text = re.compile(r"Fraxlend\s*V1\s*FRAX/FXS", re.IGNORECASE)
+#         fees_range = None
+#
+#         # Find elements containing the target text
+#         for element in soup.find_all(string=target_text):
+#             parent = element.find_parent()
+#             if parent:
+#                 # Search for percentage range in nearby elements
+#                 for sibling in parent.find_all_next(string=True, limit=10):
+#                     if re.search(r'\d+\.\d+%\s*-\s*\d+\.\d+%', sibling):
+#                         fees_range = sibling.strip()
+#                         break
+#                 if fees_range:
+#                     break
+#
+#         if fees_range:
+#             match = re.search(r'(\d+\.\d+)%\s*-\s*\d+\.\d+%', fees_range)
+#             if match:
+#                 return float(match.group(1))
+#                 #return f"Lower bound for FXS (Fraxlend V1 FRAX/FXS): {float(match.group(1))}%"
+#             else:
+#                 return 0.0
+#                 #return "Could not extract lower bound from percentage range"
+#         else:
+#             return 0.0
+#             #return f"Could not find 'Fraxlend V1 FRAX/FXS' or associated fees/rewards on {url}"
+#
+#     except Exception as e:
+#         return 0.0
+#         #return f"An error occurred: {e}"
 
 
 def process_pairs():
@@ -580,7 +633,7 @@ def process_pairs():
                                 f"Rate Type: {rate_type}"
                             )
                             if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
-                                bonus = get_fraxlend_fxs_lower_bound(driver)
+                                bonus = get_fraxlend_fxs_lower_bound()
                                 message += f"+{bonus}\n"
                             send_to_telegram(message)
                             processed_urls.add(url)
