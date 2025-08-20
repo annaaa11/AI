@@ -19,6 +19,14 @@ import psutil
 import subprocess
 from urllib3.exceptions import NewConnectionError
 
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from bs4 import BeautifulSoup
+import re
+import time
+
+
 MIN_LEND_APR_THRESHOLD = 15  # Пороговая ставка Lend APR для фильтрации (в процентах)
 
 
@@ -204,64 +212,117 @@ def get_pair_links(driver, max_retries=3):
 
     return []
 
-def fetch_fraxlend_v1_frax_fxs_rate(driver, max_retries=3):
-    url = "https://app.frax.finance/staking/overview"
-    logger.info(f"Попытка загрузки страницы для получения ставки Fraxlend V1 FRAX/FXS: {url}")
 
-    for attempt in range(max_retries):
-        try:
-            driver.get(url)
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Fraxlend V1 FRAX/FXS')]"))
-            )
-            page_source = driver.page_source
-            soup = BeautifulSoup(page_source, 'html.parser')
+def fetch_fraxlend_v1_frax_fxs_rate(driver):
 
-            # Ищем элемент, содержащий текст "Fraxlend V1 FRAX/FXS"
-            fraxlend_element = soup.find(string=re.compile('Fraxlend V1 FRAX/FXS'))
-            if not fraxlend_element:
-                logger.error("Не найден элемент с текстом 'Fraxlend V1 FRAX/FXS'")
-                return 0.0
+    try:
+        url = "https://app.frax.finance/staking/overview"
+        # Set up Selenium WebDriver
+        # options = webdriver.ChromeOptions()
+        # options.add_argument('--headless')
+        # options.add_argument(
+        #     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+        # driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-            # Ищем родительский элемент, содержащий диапазон процентов
-            parent = fraxlend_element.find_parent()
-            rate_text = None
-            for sibling in parent.find_next_siblings():
-                if '[FXS:' in sibling.text:
-                    rate_text = sibling.text
+        # Load the page
+        driver.get(url)
+        time.sleep(5)  # Wait for dynamic content
+
+        # Parse page source
+        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        driver.quit()
+
+        # Search for target text
+        target_text = re.compile(r"Fraxlend\s*V1\s*FRAX/FXS", re.IGNORECASE)
+        fees_range = None
+
+        # Find elements containing the target text
+        for element in soup.find_all(string=target_text):
+            parent = element.find_parent()
+            if parent:
+                # Search for percentage range in nearby elements
+                for sibling in parent.find_all_next(string=True, limit=10):
+                    if re.search(r'\d+\.\d+%\s*-\s*\d+\.\d+%', sibling):
+                        fees_range = sibling.strip()
+                        break
+                if fees_range:
                     break
 
-            if not rate_text:
-                logger.error("Не найден диапазон процентов для Fraxlend V1 FRAX/FXS")
-                return 0.0
-
-            # Извлекаем нижнюю границу из текста вида [FXS: X% - Y%]
-            match = re.search(r'\[FXS:\s*([\d.]+)%\s*-\s*([\d.]+)%\]', rate_text)
+        if fees_range:
+            match = re.search(r'(\d+\.\d+)%\s*-\s*\d+\.\d+%', fees_range)
             if match:
-                lower_bound = float(match.group(1))
-                logger.info(f"Извлечена нижняя граница ставки: {lower_bound}%")
-                return lower_bound
+                return float(match.group(1))
+                # return f"Lower bound for FXS (Fraxlend V1 FRAX/FXS): {match.group(1)}%"
             else:
-                logger.error(f"Не удалось распарсить диапазон процентов из текста: {rate_text}")
                 return 0.0
+                #return "Could not extract lower bound from percentage range"
+        else:
+            return 0.0
+                       # return f"Could not find 'Fraxlend V1 FRAX/FXS' or associated fees/rewards on {url}"
 
-        except TimeoutException as e:
-            logger.error(f"Попытка {attempt + 1}/{max_retries}: Тайм-аут при загрузке {url}: {e}")
-            if attempt == max_retries - 1:
-                logger.error("Не удалось загрузить ставку после всех попыток")
-                send_to_telegram("Ошибка: Не удалось загрузить ставку Fraxlend V1 FRAX/FXS")
-                return 0.0
-            time.sleep(2)
+    except Exception as e:
+        return 0.0
+        #return f"An error occurred: {e}"
 
-        except Exception as e:
-            logger.error(f"Попытка {attempt + 1}/{max_retries}: Ошибка при получении ставки: {type(e).__name__}: {e}")
-            if attempt == max_retries - 1:
-                logger.error("Не удалось загрузить ставку после всех попыток")
-                send_to_telegram(f"Ошибка при получении ставки Fraxlend V1 FRAX/FXS: {type(e).__name__}: {e}")
-                return 0.0
-            time.sleep(2)
 
-    return 0.0
+# def fetch_fraxlend_v1_frax_fxs_rate(driver, max_retries=3):
+#     url = "https://app.frax.finance/staking/overview"
+#     logger.info(f"Попытка загрузки страницы для получения ставки Fraxlend V1 FRAX/FXS: {url}")
+#
+#     for attempt in range(max_retries):
+#         try:
+#             driver.get(url)
+#             WebDriverWait(driver, 10).until(
+#                 EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Fraxlend V1 FRAX/FXS')]"))
+#             )
+#             page_source = driver.page_source
+#             soup = BeautifulSoup(page_source, 'html.parser')
+#
+#             # Ищем элемент, содержащий текст "Fraxlend V1 FRAX/FXS"
+#             fraxlend_element = soup.find(string=re.compile('Fraxlend V1 FRAX/FXS'))
+#             if not fraxlend_element:
+#                 logger.error("Не найден элемент с текстом 'Fraxlend V1 FRAX/FXS'")
+#                 return 0.0
+#
+#             # Ищем родительский элемент, содержащий диапазон процентов
+#             parent = fraxlend_element.find_parent()
+#             rate_text = None
+#             for sibling in parent.find_next_siblings():
+#                 if '[FXS:' in sibling.text:
+#                     rate_text = sibling.text
+#                     break
+#
+#             if not rate_text:
+#                 logger.error("Не найден диапазон процентов для Fraxlend V1 FRAX/FXS")
+#                 return 0.0
+#
+#             # Извлекаем нижнюю границу из текста вида [FXS: X% - Y%]
+#             match = re.search(r'\[FXS:\s*([\d.]+)%\s*-\s*([\d.]+)%\]', rate_text)
+#             if match:
+#                 lower_bound = float(match.group(1))
+#                 logger.info(f"Извлечена нижняя граница ставки: {lower_bound}%")
+#                 return lower_bound
+#             else:
+#                 logger.error(f"Не удалось распарсить диапазон процентов из текста: {rate_text}")
+#                 return 0.0
+#
+#         except TimeoutException as e:
+#             logger.error(f"Попытка {attempt + 1}/{max_retries}: Тайм-аут при загрузке {url}: {e}")
+#             if attempt == max_retries - 1:
+#                 logger.error("Не удалось загрузить ставку после всех попыток")
+#                 send_to_telegram("Ошибка: Не удалось загрузить ставку Fraxlend V1 FRAX/FXS")
+#                 return 0.0
+#             time.sleep(2)
+#
+#         except Exception as e:
+#             logger.error(f"Попытка {attempt + 1}/{max_retries}: Ошибка при получении ставки: {type(e).__name__}: {e}")
+#             if attempt == max_retries - 1:
+#                 logger.error("Не удалось загрузить ставку после всех попыток")
+#                 send_to_telegram(f"Ошибка при получении ставки Fraxlend V1 FRAX/FXS: {type(e).__name__}: {e}")
+#                 return 0.0
+#             time.sleep(2)
+#
+#     return 0.0
 
 
 def fetch_metrics(driver, url, timeout=15, max_retries=2):
