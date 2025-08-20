@@ -27,7 +27,7 @@ import re
 import time
 
 
-MIN_LEND_APR_THRESHOLD = 10 # Пороговая ставка Lend APR для фильтрации (в процентах)
+MIN_LEND_APR_THRESHOLD = 7 # Пороговая ставка Lend APR для фильтрации (в процентах)
 
 
 # Настройка логирования
@@ -218,11 +218,11 @@ def fetch_fraxlend_v1_frax_fxs_rate(driver):
     try:
         url = "https://app.frax.finance/staking/overview"
         # Set up Selenium WebDriver
-        # options = webdriver.ChromeOptions()
-        # options.add_argument('--headless')
-        # options.add_argument(
-        #     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-        # driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless')
+        options.add_argument(
+            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
         # Load the page
         driver.get(url)
