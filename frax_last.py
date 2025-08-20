@@ -423,9 +423,9 @@ def get_driver(chromedriver_path: str):
     return driver
 
 
-def get_fraxlend_fxs_lower_bound(chromedriver_path: str) -> float:
+def get_fraxlend_fxs_lower_bound(driver) -> float:
     url = "https://app.frax.finance/staking/overview"
-    driver = get_driver(chromedriver_path)
+    #driver = get_driver(chromedriver_path)
     driver.get(url)
 
     try:
@@ -435,7 +435,7 @@ def get_fraxlend_fxs_lower_bound(chromedriver_path: str) -> float:
 
         # Parse page source
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        driver.quit()
+        #driver.quit()
 
         # Search for target text
         target_text = re.compile(r"Fraxlend\s*V1\s*FRAX/FXS", re.IGNORECASE)
@@ -561,7 +561,7 @@ def process_pairs():
     v2_params = InterestRateParams()
     v1_model = TimeWeightedVariableInterestRate(v1_params)
     v2_model = VariableInterestRate(v2_params)
-    bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
+
 
     iteration_count = 0
 
@@ -599,6 +599,7 @@ def process_pairs():
                     time.sleep(2)
 
             pair_links = get_pair_links(driver)
+            bonus = get_fraxlend_fxs_lower_bound(driver)
             logger.info(f"Полученные пары: {pair_links}")
             if driver:
                 try:
