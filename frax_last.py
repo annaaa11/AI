@@ -502,7 +502,6 @@ def get_fraxlend_fxs_lower_bound(chromedriver_path: str) -> float:
 #         return 0.0
 #         #return f"An error occurred: {e}"
 
-
 def process_pairs(bonus):
     logger.info(f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
     send_to_telegram("Тест: Сервер запущен, начинаем парсинг")
