@@ -413,7 +413,7 @@ def get_fraxlend_fxs_lower_bound(driver):
 
         # Parse page source
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        driver.quit()
+        #driver.quit()
 
         # Search for target text
         target_text = re.compile(r"Fraxlend\s*V1\s*FRAX/FXS", re.IGNORECASE)
@@ -434,14 +434,18 @@ def get_fraxlend_fxs_lower_bound(driver):
         if fees_range:
             match = re.search(r'(\d+\.\d+)%\s*-\s*\d+\.\d+%', fees_range)
             if match:
-                return f"Lower bound for FXS (Fraxlend V1 FRAX/FXS): {float(match.group(1))}%"
+                return float(match.group(1))
+                #return f"Lower bound for FXS (Fraxlend V1 FRAX/FXS): {float(match.group(1))}%"
             else:
-                return "Could not extract lower bound from percentage range"
+                return 0.0
+                #return "Could not extract lower bound from percentage range"
         else:
-            return f"Could not find 'Fraxlend V1 FRAX/FXS' or associated fees/rewards on {url}"
+            return 0.0
+            #return f"Could not find 'Fraxlend V1 FRAX/FXS' or associated fees/rewards on {url}"
 
     except Exception as e:
-        return f"An error occurred: {e}"
+        return 0.0
+        #return f"An error occurred: {e}"
 
 
 def process_pairs():
