@@ -429,7 +429,10 @@ def calculate_optimal_investment(data, v1_model, v2_model, driver, delta_time=86
         pair_address = data.get("Link", "").split("/")[-1].lower()  # Приводим к нижнему регистру
 
         # Для пары 0xDbe88DBAc39263c47629ebbA02b3eF4cf0752A72 добавляем ставку Fraxlend V1 FRAX/FXS
-        fraxlend_rate = 0.0
+        #fraxlend_rate = 0.0
+        fraxlend_rate = fetch_fraxlend_v1_frax_fxs_rate(driver)
+        send_to_telegram(f"Fraxlend V1 FRAX/FXS для пары {fraxlend_rate}")
+
         if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":  # Сравниваем в нижнем регистре
             fraxlend_rate = fetch_fraxlend_v1_frax_fxs_rate(driver)
             lend_apr += fraxlend_rate
