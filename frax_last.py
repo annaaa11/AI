@@ -449,7 +449,7 @@ def get_fraxlend_fxs_lower_bound(chromedriver_path: str) -> float:
 
 
     except Exception as e:
-        return 0.0
+        driver.quit()
 
 
 # def get_fraxlend_fxs_lower_bound(driver):
@@ -503,7 +503,7 @@ def get_fraxlend_fxs_lower_bound(chromedriver_path: str) -> float:
 #         #return f"An error occurred: {e}"
 
 
-def process_pairs():
+def process_pairs(bonus):
     logger.info(f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
     send_to_telegram("Тест: Сервер запущен, начинаем парсинг")
     options = Options()
@@ -635,7 +635,7 @@ def process_pairs():
                                 f"Rate Type: {rate_type}"
                             )
                             if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
-                                bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
+                                #bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
                                 message += f"+{bonus}\n"
                             send_to_telegram(message)
                             processed_urls.add(url)
@@ -683,9 +683,10 @@ def process_pairs():
                     #f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutilsutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
 
 def main():
+    bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
     logger.info("Запуск Background Worker")
     send_to_telegram("Тест: Background Worker запущен")
-    process_pairs()
+    process_pairs(bonus)
 
 if __name__ == "__main__":
     main()
