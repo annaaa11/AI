@@ -502,7 +502,7 @@ def get_fraxlend_fxs_lower_bound(chromedriver_path: str) -> float:
 #         return 0.0
 #         #return f"An error occurred: {e}"
 
-def process_pairs(bonus):
+def process_pairs():
     logger.info(f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
     send_to_telegram("Тест: Сервер запущен, начинаем парсинг")
     options = Options()
@@ -522,6 +522,7 @@ def process_pairs(bonus):
     v2_params = InterestRateParams()
     v1_model = TimeWeightedVariableInterestRate(v1_params)
     v2_model = VariableInterestRate(v2_params)
+    bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
 
     iteration_count = 0
 
@@ -682,10 +683,11 @@ def process_pairs(bonus):
                     #f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutilsutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
 
 def main():
-    bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
+
+
     logger.info("Запуск Background Worker")
     send_to_telegram("Тест: Background Worker запущен")
-    process_pairs(bonus)
+    process_pairs()
 
 if __name__ == "__main__":
     main()
