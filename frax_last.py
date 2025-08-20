@@ -672,7 +672,7 @@ def process_pairs():
                             message = (
                                 f" Пара: {collateral} ({url}, {rate_type})\n"
                                 f"Timestamp (UTC): {timestamp} +3 часа\n"
-                                f"Старая Lend APR: {data.get('Lend APR') + b}\n"
+                                f"Старая Lend APR: {(float(data.get('Lend APR')) + b):.2f}\n"
                                 f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f + b} %\n"
                                 f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
                                 f"Максимальный доход за 1 день: ${max_profit:,.2f + s}\n"
