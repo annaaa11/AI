@@ -255,6 +255,22 @@ def fetch_metrics(driver, url, timeout=15, max_retries=2):
                         "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A", "Collateral": "N/A"}
             time.sleep(2)
 
+# def parse_dollar_amount(amount_str: str, is_reserve_size: bool = False) -> float:
+#     if amount_str == "N/A" or not amount_str:
+#         logger.warning(f"Невозможно распарсить сумму: {amount_str}, возвращается 0.0")
+#         return 0.0
+#     try:
+#         cleaned = re.sub(r'[^\d.]', '', amount_str)
+#         value = float(cleaned)
+#         if is_reserve_size and 'm' in amount_str.lower():
+#             return value * 1_000_000
+#         elif 'k' in amount_str.lower():
+#             return value * 1_000
+#         return value
+#     except ValueError:
+#         logger.error(f"Ошибка парсинга суммы: {amount_str}, возвращается 0.0")
+#         return 0.0
+
 def parse_dollar_amount(amount_str: str, is_reserve_size: bool = False) -> float:
     if amount_str == "N/A" or not amount_str:
         logger.warning(f"Невозможно распарсить сумму: {amount_str}, возвращается 0.0")
@@ -262,7 +278,8 @@ def parse_dollar_amount(amount_str: str, is_reserve_size: bool = False) -> float
     try:
         cleaned = re.sub(r'[^\d.]', '', amount_str)
         value = float(cleaned)
-        if is_reserve_size and 'm' in amount_str.lower():
+        if 'm' in amount_str.lower():
+            # 'm' всегда означает миллионы для всех пар
             return value * 1_000_000
         elif 'k' in amount_str.lower():
             return value * 1_000
