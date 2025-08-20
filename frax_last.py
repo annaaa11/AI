@@ -671,6 +671,7 @@ def process_pairs():
                                 max_profit = max_profit + s
                                 #bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
 
+
                             message = (
                                 f" Пара: {collateral} ({url}, {rate_type})\n"
                                 f"Timestamp (UTC): {timestamp} +3 часа\n"
