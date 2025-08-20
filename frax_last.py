@@ -662,20 +662,22 @@ def process_pairs():
                         pair_address = url.split("/")[-1].lower()
                         if optimal_investment is not None:
                             timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-                            b = 0
+                            b = ""
                             s = 0
                             if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
-                                b = bonus
+                                b = "+" + str(bonus)
                                 s = (optimal_investment * bonus / 100) / 365.24
+                                optimal_lend_apr = optimal_lend_apr + bonus
+                                max_profit = max_profit + s
                                 #bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
 
                             message = (
                                 f" Пара: {collateral} ({url}, {rate_type})\n"
                                 f"Timestamp (UTC): {timestamp} +3 часа\n"
-                               # f"Старая Lend APR: {(float(data.get('Lend APR').replace('%', '').strip())+ b):.2f}\n"
-                                f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f + b} %\n"
+                                f"Старая Lend APR: {data.get('Lend APR')} {b})\n"
+                                f"Новая оптимальная Lend APR: {optimal_lend_apr:,.2f} %\n"
                                 f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
-                                f"Максимальный доход за 1 день: ${max_profit:,.2f + s}\n"
+                                f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
                                 f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
                                 f"Available Liquidity: {data.get('Available Liquidity')}\n"
                                 f"Utilization Rate: {data.get('Utilization Rate')}\n"
