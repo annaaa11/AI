@@ -600,6 +600,7 @@ def process_pairs():
 
             pair_links = get_pair_links(driver)
             bonus = get_fraxlend_fxs_lower_bound(driver)
+
             logger.info(f"Bonus> {bonus}")
             logger.info(f"Полученные пары: {pair_links}")
             if driver:
@@ -661,13 +662,20 @@ def process_pairs():
                         pair_address = url.split("/")[-1].lower()
                         if optimal_investment is not None:
                             timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+                            b = 0
+                            s = 0
+                            if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
+                                b = bonus
+                                s = (optimal_investment * bonus / 100) / 365.24
+                                #bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
+
                             message = (
                                 f" Пара: {collateral} ({url}, {rate_type})\n"
                                 f"Timestamp (UTC): {timestamp} +3 часа\n"
-                                f"Старая Lend APR: {data.get('Lend APR')}\n"
-                                f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%\n"
+                                f"Старая Lend APR: {data.get('Lend APR')} + {b}\n"
+                                f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f} + {b}%\n"
                                 f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
-                                f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
+                                f"Максимальный доход за 1 день: ${max_profit:,.2f} + {s}\n"
                                 f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
                                 f"Available Liquidity: {data.get('Available Liquidity')}\n"
                                 f"Utilization Rate: {data.get('Utilization Rate')}\n"
@@ -675,9 +683,7 @@ def process_pairs():
                                 f"Reserve Size: {data.get('Reserve Size')}\n"
                                 f"Rate Type: {rate_type}"
                             )
-                            if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
-                                #bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
-                                message += f"+{bonus}\n"
+
                             send_to_telegram(message)
                             processed_urls.add(url)
                         else:
