@@ -2,9 +2,9 @@ import os
 import time
 import requests
 from tqdm import tqdm
-from datetime import datetime, timezone
+from datetime import datetime
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Tuple, List, Dict
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -18,7 +18,16 @@ import subprocess
 import re
 from bs4 import BeautifulSoup
 
-MIN_APR = 5 #порог для ставки land APR
+# Константы
+MIN_APR = 5  # Порог для ставки Lend APR
+TOTAL_INVESTMENT = 200_000  # Общая сумма для инвестиций
+INVESTMENT_STEP = 5_000  # Шаг инвестиций для оптимизации
+MIN_INVESTMENT = 3_000  # Минимальная сумма инвестиций
+SECONDS_PER_YEAR = 365.24 * 24 * 3600  # Глобальная константа
+CHECK_INTERVAL = 60 * 60  # Интервал проверки в секундах (1 час)
+MAX_PAIRS = 100  # Максимальное количество пар
+MAX_ITERATION_TIME = 1200  # Максимальное время на итерацию (10 минут)
+
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
@@ -26,12 +35,10 @@ logger = logging.getLogger(__name__)
 # Настройки Telegram
 BOT_TOKEN = "8218685044:AAESCtKJJEi0guAAH4iOtt_haD7LL_Ukow8"
 CHAT_IDS = [6192278046, 306507209]
-CHECK_INTERVAL = 60 * 60  # Интервал проверки в секундах (1 час)
-MAX_PAIRS = 100  # Максимальное количество пар
-MAX_ITERATION_TIME = 1200  # Максимальное время на итерацию (10 минут)
 
 # Blacklist for problematic pairs
 BLACKLISTED_PAIRS = set()
+
 
 @dataclass
 class InterestRateParams:
@@ -46,6 +53,7 @@ class InterestRateParams:
     util_precision: float = 1e5
     rate_precision: float = 1e18
 
+
 @dataclass
 class TimeWeightedInterestRateParams:
     protocol_fee: float = 0.1
@@ -57,79 +65,81 @@ class TimeWeightedInterestRateParams:
     util_precision: float = 1e5
     rate_precision: float = 1e18
 
+
 class VariableInterestRate:
     def __init__(self, params: InterestRateParams, suffix: str = "[0.5 0.2@.875 5-10k] 2 days (.75-.85)"):
         self.params = params
         self.suffix = suffix
-        self.seconds_per_year = 365.24 * 24 * 3600
 
     def calculate_old_full_utilization_interest(self, old_lend_apr: float, old_utilization: float) -> float:
         old_borrow_apr = old_lend_apr / old_utilization if old_utilization != 0 else 0
-        old_borrow_rate_per_sec = old_borrow_apr / (self.seconds_per_year * 100)
+        old_borrow_rate_per_sec = old_borrow_apr / (SECONDS_PER_YEAR * 100)
         term = (
-            old_borrow_rate_per_sec - self.params.zero_util_rate) * self.params.vertex_util / old_utilization if old_utilization != 0 else 0
+                       old_borrow_rate_per_sec - self.params.zero_util_rate) * self.params.vertex_util / old_utilization if old_utilization != 0 else 0
         vertex_interest = term + self.params.zero_util_rate
         full_utilization_interest = ((
-            vertex_interest - self.params.zero_util_rate) / self.params.vertex_rate_percent) + self.params.zero_util_rate
+                                             vertex_interest - self.params.zero_util_rate) / self.params.vertex_rate_percent) + self.params.zero_util_rate
         return full_utilization_interest
 
     def get_full_utilization_interest(self, delta_time: float, utilization: float,
-                                     full_utilization_interest: float) -> float:
+                                      full_utilization_interest: float) -> float:
         if utilization < self.params.min_target_util:
             delta_utilization = ((
-                self.params.min_target_util - utilization) * self.params.rate_precision) / self.params.min_target_util
+                                         self.params.min_target_util - utilization) * self.params.rate_precision) / self.params.min_target_util
             decay_growth = (self.params.rate_half_life * 1e36) + (delta_utilization * delta_utilization * delta_time)
             new_full_utilization_interest = (full_utilization_interest * (
-                self.params.rate_half_life * 1e36)) / decay_growth
+                    self.params.rate_half_life * 1e36)) / decay_growth
         elif utilization > self.params.max_target_util:
             delta_utilization = ((utilization - self.params.max_target_util) * self.params.rate_precision) / (
-                self.params.util_precision - self.params.max_target_util)
+                    self.params.util_precision - self.params.max_target_util)
             decay_growth = (self.params.rate_half_life * 1e36) + (delta_utilization * delta_utilization * delta_time)
             new_full_utilization_interest = (full_utilization_interest * decay_growth) / (
-                self.params.rate_half_life * 1e36)
+                    self.params.rate_half_life * 1e36)
         else:
             new_full_utilization_interest = full_utilization_interest
         new_full_utilization_interest = min(new_full_utilization_interest, self.params.max_full_util_rate)
         new_full_utilization_interest = max(new_full_utilization_interest, self.params.min_full_util_rate)
         return new_full_utilization_interest
 
-    def get_new_rate(self, delta_time: float, utilization: float, old_full_utilization_interest: float) -> Tuple[float, float]:
+    def get_new_rate(self, delta_time: float, utilization: float, old_full_utilization_interest: float) -> Tuple[
+        float, float]:
         new_full_utilization_interest = self.get_full_utilization_interest(delta_time, utilization,
-                                                                         old_full_utilization_interest)
+                                                                           old_full_utilization_interest)
         vertex_interest = (((
-            new_full_utilization_interest - self.params.zero_util_rate) * self.params.vertex_rate_percent) + self.params.zero_util_rate)
+                                    new_full_utilization_interest - self.params.zero_util_rate) * self.params.vertex_rate_percent) + self.params.zero_util_rate)
         if utilization < self.params.vertex_util:
             new_rate_per_sec = (self.params.zero_util_rate + (
-                utilization * (vertex_interest - self.params.zero_util_rate)) / self.params.vertex_util)
+                    utilization * (vertex_interest - self.params.zero_util_rate)) / self.params.vertex_util)
         else:
             new_rate_per_sec = (vertex_interest + (
-                (utilization - self.params.vertex_util) * (new_full_utilization_interest - vertex_interest)) / (
-                    1.0 - self.params.vertex_util))
+                    (utilization - self.params.vertex_util) * (new_full_utilization_interest - vertex_interest)) / (
+                                        1.0 - self.params.vertex_util))
         return new_rate_per_sec, new_full_utilization_interest
+
 
 class TimeWeightedVariableInterestRate:
     def __init__(self, params: TimeWeightedInterestRateParams):
         self.params = params
-        self.seconds_per_year = 365.24 * 24 * 3600
         self.rate_half_life_secs = params.rate_half_life_days * 24 * 3600
 
     def calculate_rate_per_sec(self, apr: float) -> float:
-        return apr / 100 / self.seconds_per_year
+        return apr / 100 / SECONDS_PER_YEAR
 
-    def calculate_new_full_utilization_rate(self, old_utilization: float, old_lend_apr: float, delta_time: float) -> float:
+    def calculate_new_full_utilization_rate(self, old_utilization: float, old_lend_apr: float,
+                                            delta_time: float) -> float:
         old_rate_per_sec = self.calculate_rate_per_sec(old_lend_apr)
         old_full_util_rate = old_rate_per_sec / (
-            old_utilization * (1 - self.params.protocol_fee)) if old_utilization != 0 else 0
+                old_utilization * (1 - self.params.protocol_fee)) if old_utilization != 0 else 0
 
         if old_utilization < self.params.min_utilization:
             delta_utilization = ((self.params.min_utilization - old_utilization) *
-                                self.params.rate_precision) / self.params.min_utilization
+                                 self.params.rate_precision) / self.params.min_utilization
             decay_growth = (self.rate_half_life_secs * 1e36) + (delta_utilization * delta_utilization * delta_time)
             new_full_util_rate = (old_full_util_rate * (self.rate_half_life_secs * 1e36)) / decay_growth
         elif old_utilization > self.params.max_utilization:
             delta_utilization = ((old_utilization - self.params.max_utilization) *
-                                self.params.rate_precision) / (
-                self.params.util_precision - self.params.max_utilization)
+                                 self.params.rate_precision) / (
+                                        self.params.util_precision - self.params.max_utilization)
             decay_growth = (self.rate_half_life_secs * 1e36) + (delta_utilization * delta_utilization * delta_time)
             new_full_util_rate = (old_full_util_rate * decay_growth) / (self.rate_half_life_secs * 1e36)
         else:
@@ -140,15 +150,18 @@ class TimeWeightedVariableInterestRate:
         new_full_util_rate = min(max(new_full_util_rate, min_rate_per_sec), max_rate_per_sec)
         return new_full_util_rate
 
-    def get_new_lend_apr(self, delta_time: float, current_utilization: float, old_lend_apr: float, old_utilization: float) -> float:
+    def get_new_lend_apr(self, delta_time: float, current_utilization: float, old_lend_apr: float,
+                         old_utilization: float) -> float:
         full_utilization_rate = self.calculate_new_full_utilization_rate(
             old_utilization, old_lend_apr, delta_time)
         lend_rate_per_sec = full_utilization_rate * current_utilization * (
-            1 - self.params.protocol_fee) if current_utilization != 0 else 0
-        lend_apr = lend_rate_per_sec * self.seconds_per_year * 100
+                1 - self.params.protocol_fee) if current_utilization != 0 else 0
+        lend_apr = lend_rate_per_sec * SECONDS_PER_YEAR * 100
         return lend_apr
 
-def get_pair_links(driver, max_retries=3):
+
+def get_pair_links(driver, max_retries=3) -> List[str]:
+    """Получает список ссылок на пары с сайта Fraxlend."""
     url = "https://facts.frax.finance/fraxlend/pairs"
     logger.info(f"Попытка загрузки страницы: {url}")
     for attempt in range(max_retries):
@@ -186,7 +199,9 @@ def get_pair_links(driver, max_retries=3):
             time.sleep(2)
     return []
 
-def fetch_metrics(driver, url, timeout=15, max_retries=2):
+
+def fetch_metrics(driver, url: str, timeout=15, max_retries=2) -> Dict:
+    """Извлекает метрики для указанной пары."""
     logger.info(f"Загрузка страницы: {url}")
     if url in BLACKLISTED_PAIRS:
         logger.info(f"Пара {url} в черном списке, пропускаем")
@@ -256,23 +271,9 @@ def fetch_metrics(driver, url, timeout=15, max_retries=2):
                         "Borrow APR": "N/A", "Reserve Size": "N/A", "Rate Type": "N/A", "Collateral": "N/A"}
             time.sleep(2)
 
-# def parse_dollar_amount(amount_str: str, is_reserve_size: bool = False) -> float:
-#     if amount_str == "N/A" or not amount_str:
-#         logger.warning(f"Невозможно распарсить сумму: {amount_str}, возвращается 0.0")
-#         return 0.0
-#     try:
-#         cleaned = re.sub(r'[^\d.]', '', amount_str)
-#         value = float(cleaned)
-#         if is_reserve_size and 'm' in amount_str.lower():
-#             return value * 1_000_000
-#         elif 'k' in amount_str.lower():
-#             return value * 1_000
-#         return value
-#     except ValueError:
-#         logger.error(f"Ошибка парсинга суммы: {amount_str}, возвращается 0.0")
-#         return 0.0
 
 def parse_dollar_amount(amount_str: str, is_reserve_size: bool = False) -> float:
+    """Парсит строковое представление суммы в долларах."""
     if amount_str == "N/A" or not amount_str:
         logger.warning(f"Невозможно распарсить сумму: {amount_str}, возвращается 0.0")
         return 0.0
@@ -280,8 +281,7 @@ def parse_dollar_amount(amount_str: str, is_reserve_size: bool = False) -> float
         cleaned = re.sub(r'[^\d.]', '', amount_str)
         value = float(cleaned)
         if 'm' in amount_str.lower():
-            # 'm' всегда означает миллионы для всех пар
-            return value * 1_000_000
+            return value * 1_000_000  # Предполагается, что 'm' всегда означает миллионы
         elif 'k' in amount_str.lower():
             return value * 1_000
         return value
@@ -289,7 +289,10 @@ def parse_dollar_amount(amount_str: str, is_reserve_size: bool = False) -> float
         logger.error(f"Ошибка парсинга суммы: {amount_str}, возвращается 0.0")
         return 0.0
 
-def calculate_optimal_investment(data, v1_model, v2_model, delta_time=86400.0):
+
+def calculate_pair_profit(data: Dict, v1_model, v2_model, investment: float, bonus: float = 0.0,
+                          delta_time: float = 86400.0) -> Tuple[float, float, float, Dict]:
+    """Рассчитывает прибыль, новую Lend APR и утилизацию для пары при заданной инвестиции."""
     try:
         lend_apr_str = data.get("Lend APR", "0").replace("%", "").strip()
         utilization_str = data.get("Utilization Rate", "0").replace("%", "").strip()
@@ -298,86 +301,173 @@ def calculate_optimal_investment(data, v1_model, v2_model, delta_time=86400.0):
         available_liquidity = parse_dollar_amount(data.get("Available Liquidity", "0"))
         reserve_size = parse_dollar_amount(data.get("Reserve Size", "0"), is_reserve_size=True)
         rate_type = data.get("Rate Type", "N/A")
+        pair_address = data.get("Link", "").split("/")[-1].lower()
         logger.info(
             f"Распарсенные данные: Lend APR={lend_apr}, Utilization={utilization}, Available Liquidity={available_liquidity}, Reserve Size={reserve_size}, Rate Type={rate_type}")
     except Exception as e:
         logger.error(f"Ошибка парсинга данных для {data.get('Link')}: {e}")
         send_to_telegram(f"Ошибка парсинга данных для {data.get('Link')}: {e}")
-        return None, None, None, None
+        return 0.0, 0.0, 0.0, data
 
-    # Фильтрация: Lend APR > 6%, Utilization Rate < 101%, Reserve Size != 0
     if lend_apr <= MIN_APR:
-        logger.info(f"Пара отфильтрована: {data.get('Link')} (Lend APR={lend_apr} <= 20%)")
-        return None, None, None, None
+        logger.info(f"Пара отфильтрована: {data.get('Link')} (Lend APR={lend_apr} <= {MIN_APR}%)")
+        return 0.0, 0.0, 0.0, data
     if utilization >= 1.01:
-        logger.info(f"Пара отфильтрована: {data.get('Link')} (Utilization Rate={utilization*100}% >= 101%)")
-        return None, None, None, None
+        logger.info(f"Пара отфильтрована: {data.get('Link')} (Utilization Rate={utilization * 100}% >= 101%)")
+        return 0.0, 0.0, 0.0, data
     if reserve_size == 0:
         logger.info(f"Пара отфильтрована: {data.get('Link')} (Reserve Size={reserve_size} == 0)")
-        return None, None, None, None
+        return 0.0, 0.0, 0.0, data
+    if investment > available_liquidity:
+        logger.info(
+            f"Пара отфильтрована: {data.get('Link')} (Investment={investment} > Available Liquidity={available_liquidity})")
+        return 0.0, 0.0, 0.0, data
 
-    seconds_per_year = 365.24 * 24 * 3600
-    max_investment = 200000
-    step = 5000
-    investments = range(3000, int(max_investment) + 1, step)
-
-    max_profit = 0
-    optimal_investment = 0
-    optimal_lend_apr = 0
-    optimal_utilization = 0
-    valid_investments = 0
+    new_utilization = 1 - (available_liquidity + investment) / (reserve_size + investment)
+    logger.debug(f"Investment={investment}, new_utilization={new_utilization:.4f}")
 
     if rate_type == "Variable V2":
+        if new_utilization < 0.76:
+            logger.debug(f"Пропущено (V2): new_utilization={new_utilization:.4f} < 0.76")
+            return 0.0, 0.0, 0.0, data
         old_full_utilization_interest = v2_model.calculate_old_full_utilization_interest(lend_apr, utilization)
-        for investment in investments:
-            new_utilization = 1 - (available_liquidity + investment) / (reserve_size + investment)
-            logger.debug(f"Investment={investment}, new_utilization={new_utilization:.4f}")
-            if new_utilization < 0.76:
-                logger.debug(f"Пропущено (V2): new_utilization={new_utilization:.4f} < 0.76")
-                continue
-
-            valid_investments += 1
-            new_rate_per_sec, _ = v2_model.get_new_rate(delta_time, new_utilization, old_full_utilization_interest)
-            new_lend_apr = new_rate_per_sec * seconds_per_year * new_utilization * 100
-            daily_profit = (investment * new_lend_apr / 100) / 365.24
-
-            if daily_profit > max_profit:
-                max_profit = daily_profit
-                optimal_investment = investment
-                optimal_lend_apr = new_lend_apr
-                optimal_utilization = new_utilization
-
+        new_rate_per_sec, _ = v2_model.get_new_rate(delta_time, new_utilization, old_full_utilization_interest)
+        new_lend_apr = new_rate_per_sec * SECONDS_PER_YEAR * new_utilization * 100
+        if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
+            new_lend_apr += bonus
+        daily_profit = (investment * new_lend_apr / 100) / 365.24
     elif rate_type == "Variable V1":
-        for investment in investments:
-            new_utilization = 1 - (available_liquidity + investment) / (reserve_size + investment)
-            logger.debug(f"Investment={investment}, new_utilization={new_utilization:.4f}")
-            valid_investments += 1
-            new_lend_apr = v1_model.get_new_lend_apr(delta_time, new_utilization, lend_apr, utilization)
-            daily_profit = (investment * new_lend_apr / 100) / 365.24
-
-            if daily_profit > max_profit:
-                max_profit = daily_profit
-                optimal_investment = investment
-                optimal_lend_apr = new_lend_apr
-                optimal_utilization = new_utilization
-
+        new_lend_apr = v1_model.get_new_lend_apr(delta_time, new_utilization, lend_apr, utilization)
+        if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
+            new_lend_apr += bonus
+        daily_profit = (investment * new_lend_apr / 100) / 365.24
     else:
         logger.info(f"Пара отфильтрована: неподдерживаемый Rate Type={rate_type}")
-        return None, None, None, None
+        return 0.0, 0.0, 0.0, data
 
-    if max_profit == 0:
-        logger.info(f"Не найдено допустимых вложений для пары, valid_investments={valid_investments}")
-        return None, None, None, None
+    return daily_profit, new_lend_apr, new_utilization, data
 
-    return optimal_investment, max_profit, optimal_lend_apr, optimal_utilization
 
-def send_to_telegram(message):
+def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_model, total_investment: float, bonus: float) -> \
+List[Dict]:
+    """Оптимизирует распределение инвестиций между парами для максимизации дневной прибыли."""
+    pair_profits = []
+    for data in pairs:
+        available_liquidity = parse_dollar_amount(data.get("Available Liquidity", "0"))
+        max_investment = min(total_investment, available_liquidity)
+        investments = range(MIN_INVESTMENT, int(max_investment) + 1, INVESTMENT_STEP)
+
+        for investment in investments:
+            daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(data, v1_model, v2_model,
+                                                                                      investment, bonus)
+            if daily_profit > 0:
+                pair_profits.append({
+                    "data": data,
+                    "daily_profit": daily_profit,
+                    "new_lend_apr": new_lend_apr,
+                    "new_utilization": new_utilization,
+                    "investment": investment,
+                    "profit_per_dollar": daily_profit / investment if investment > 0 else 0
+                })
+
+    if not pair_profits:
+        logger.info("Нет подходящих пар для инвестиций")
+        return []
+
+    # Инициализируем лучшее распределение
+    best_allocation = []
+    max_total_profit = 0.0
+
+    # Проверяем вложение всей суммы в одну пару
+    for data in pairs:
+        available_liquidity = parse_dollar_amount(data.get("Available Liquidity", "0"))
+        if available_liquidity >= total_investment:
+            daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(data, v1_model, v2_model,
+                                                                                      total_investment, bonus)
+            if daily_profit > max_total_profit:
+                max_total_profit = daily_profit
+                best_allocation = [{
+                    "data": data,
+                    "investment": total_investment,
+                    "daily_profit": daily_profit,
+                    "new_lend_apr": new_lend_apr,
+                    "new_utilization": new_utilization
+                }]
+                logger.info(
+                    f"Обновлено лучшее вложение: ${total_investment:,.2f} в {data['Link']}, прибыль: ${daily_profit:,.2f}")
+
+    # Итеративное распределение по парам
+    remaining_investment = total_investment
+    allocated_pairs = []
+    used_urls = set()
+
+    while remaining_investment >= MIN_INVESTMENT and pair_profits:
+        # Сортируем по прибыли на доллар, исключая уже использованные пары
+        valid_profits = [p for p in pair_profits if p["data"]["Link"] not in used_urls]
+        if not valid_profits:
+            break
+        valid_profits.sort(key=lambda x: x["profit_per_dollar"], reverse=True)
+        best_option = valid_profits[0]
+        pair_url = best_option["data"]["Link"]
+        available_liquidity = parse_dollar_amount(best_option["data"].get("Available Liquidity", "0"))
+
+        # Проверяем разные суммы инвестиций для этой пары
+        max_investment = min(remaining_investment, available_liquidity)
+        best_investment = 0
+        best_profit = 0
+        best_lend_apr = 0
+        best_utilization = 0
+        for investment in range(MIN_INVESTMENT, int(max_investment) + 1, INVESTMENT_STEP):
+            daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(
+                best_option["data"], v1_model, v2_model, investment, bonus
+            )
+            if daily_profit > best_profit:
+                best_profit = daily_profit
+                best_investment = investment
+                best_lend_apr = new_lend_apr
+                best_utilization = new_utilization
+
+        if best_profit > 0:
+            allocated_pairs.append({
+                "data": best_option["data"],
+                "investment": best_investment,
+                "daily_profit": best_profit,
+                "new_lend_apr": best_lend_apr,
+                "new_utilization": best_utilization
+            })
+            remaining_investment -= best_investment
+            used_urls.add(pair_url)
+            logger.info(f"Инвестировано ${best_investment:,.2f} в {pair_url}, прибыль: ${best_profit:,.2f}")
+        else:
+            break
+
+    # Сравниваем с лучшим вложением в одну пару
+    total_profit = sum(p["daily_profit"] for p in allocated_pairs)
+    if total_profit > max_total_profit:
+        best_allocation = allocated_pairs
+        max_total_profit = total_profit
+        logger.info(f"Обновлено лучшее распределение: {len(best_allocation)} пар, прибыль: ${total_profit:,.2f}")
+
+    if not best_allocation:
+        logger.info("Не найдено подходящих комбинаций для инвестиций")
+        return []
+
+    remaining_investment = total_investment - sum(p["investment"] for p in best_allocation)
+    if remaining_investment > 0:
+        logger.info(f"Остаток нераспределенных средств: ${remaining_investment:,.2f}")
+        send_to_telegram(f"Остаток нераспределенных средств: ${remaining_investment:,.2f}")
+
+    return best_allocation
+
+
+def send_to_telegram(message: str):
+    """Отправляет сообщение в Telegram."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     for chat_id in CHAT_IDS:
         try:
             payload = {
                 "chat_id": chat_id,
-                "text": message[:4096]  # Telegram ограничивает длину сообщения
+                "text": message[:4096]
             }
             response = requests.post(url, data=payload, timeout=10)
             if response.status_code != 200:
@@ -387,8 +477,9 @@ def send_to_telegram(message):
         except requests.RequestException as e:
             logger.error(f"Ошибка отправки в Telegram для chat_id {chat_id}: {type(e).__name__}: {e}")
 
+
 def kill_chromedriver():
-    """Принудительно завершает все процессы chromedriver"""
+    """Принудительно завершает все процессы chromedriver."""
     try:
         subprocess.run(['pkill', '-f', 'chromedriver'], check=True)
         logger.info("Все процессы chromedriver завершены")
@@ -397,59 +488,41 @@ def kill_chromedriver():
     except Exception as e:
         logger.error(f"Ошибка при завершении chromedriver: {type(e).__name__}: {e}")
 
-chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
 
 def get_driver(chromedriver_path: str):
-    options = webdriver.ChromeOptions()
-
-    # 🔹 Headless режим (новый движок, иначе сайт может не дорисовать контент)
+    """Инициализирует WebDriver с заданными настройками."""
+    options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--disable-gpu")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-blink-features=AutomationControlled")
-
-    # 🔹 Размер окна (иначе часть элементов может не отрисоваться)
     options.add_argument("--window-size=1920,1080")
-
-    # 🔹 Настоящий User-Agent
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/115.0 Safari/537.36"
     )
-
     driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
     return driver
 
 
 def get_fraxlend_fxs_lower_bound(driver) -> float:
+    """Получает нижнюю границу APR для Fraxlend V1 FRAX/FXS."""
     url = "https://app.frax.finance/staking/overview"
-    #driver = get_driver(chromedriver_path)
-    driver.get(url)
-
+    logger.info(f"Загрузка страницы для получения бонуса: {url}")
     try:
-
-        #time.sleep(5)
-         # Wait for dynamic content
-        # Ждем появления целевого элемента
+        driver.get(url)
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Fraxlend V1 FRAX/FXS')]"))
         )
-
-        # Parse page source
         soup = BeautifulSoup(driver.page_source, 'html.parser')
-        #driver.quit()
-
-        # Search for target text
         target_text = re.compile(r"Fraxlend\s*V1\s*FRAX/FXS", re.IGNORECASE)
         fees_range = None
 
-        # Find elements containing the target text
         for element in soup.find_all(string=target_text):
             parent = element.find_parent()
             if parent:
-                # Search for percentage range in nearby elements
                 for sibling in parent.find_all_next(string=True, limit=10):
                     if re.search(r'\d+\.\d+%\s*-\s*\d+\.\d+%', sibling):
                         fees_range = sibling.strip()
@@ -460,104 +533,25 @@ def get_fraxlend_fxs_lower_bound(driver) -> float:
         if fees_range:
             match = re.search(r'(\d+\.\d+)%\s*-\s*\d+\.\d+%', fees_range)
             if match:
+                logger.info(f"Извлечена нижняя граница APR: {match.group(1)}%")
                 return float(match.group(1))
-                # return f"Lower bound for FXS (Fraxlend V1 FRAX/FXS): {float(match.group(1))}%"
             else:
+                logger.warning(f"Не удалось извлечь нижнюю границу из диапазона: {fees_range}")
                 return 0.0
-                # return "Could not extract lower bound from percentage range"
         else:
+            logger.warning(f"Не найдено 'Fraxlend V1 FRAX/FXS' или связанный диапазон APR на {url}")
             return 0.0
-            # return f"Could not find 'Fraxlend V1 FRAX/FXS' or associated fees/rewards on {url}"
 
     except Exception as e:
+        logger.error(f"Ошибка получения бонуса для Fraxlend V1 FRAX/FXS: {type(e).__name__}: {e}")
         return 0.0
 
-    #     # ✅ ждем появления текста про FRAX/FXS
-    #     WebDriverWait(driver, 30).until(
-    #         EC.presence_of_element_located(
-    #             (By.XPATH, "//*[contains(text(), 'FRAX') and contains(text(), 'FXS')]")
-    #         )
-    #     )
-    #
-    #     # Берем HTML после загрузки
-    #     html = driver.page_source
-    #
-    #     import re
-    #     match = re.search(r'(\d+(\.\d+)?)%\s*-\s*(\d+(\.\d+)?)%', html)
-    #     if match:
-    #         return float(match.group(1))  # нижняя граница
-    #     else:
-    #         return 0.0
-    #
-    #
-    #
-    # except Exception as e:
-    #     driver.quit()
-
-
-# def get_fraxlend_fxs_lower_bound(driver):
-#     try:
-#         # Set up Selenium WebDriver
-#         url = "https://app.frax.finance/staking/overview"
-#         # options = webdriver.ChromeOptions()
-#         # options.add_argument('--headless')
-#         # options.add_argument(
-#         #     '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
-#         # driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-#
-#         # Load the page
-#         driver.get(url)
-#         time.sleep(5)  # Wait for dynamic content
-#
-#         # Parse page source
-#         soup = BeautifulSoup(driver.page_source, 'html.parser')
-#         #driver.quit()
-#
-#         # Search for target text
-#         target_text = re.compile(r"Fraxlend\s*V1\s*FRAX/FXS", re.IGNORECASE)
-#         fees_range = None
-#
-#         # Find elements containing the target text
-#         for element in soup.find_all(string=target_text):
-#             parent = element.find_parent()
-#             if parent:
-#                 # Search for percentage range in nearby elements
-#                 for sibling in parent.find_all_next(string=True, limit=10):
-#                     if re.search(r'\d+\.\d+%\s*-\s*\d+\.\d+%', sibling):
-#                         fees_range = sibling.strip()
-#                         break
-#                 if fees_range:
-#                     break
-#
-#         if fees_range:
-#             match = re.search(r'(\d+\.\d+)%\s*-\s*\d+\.\d+%', fees_range)
-#             if match:
-#                 return float(match.group(1))
-#                 #return f"Lower bound for FXS (Fraxlend V1 FRAX/FXS): {float(match.group(1))}%"
-#             else:
-#                 return 0.0
-#                 #return "Could not extract lower bound from percentage range"
-#         else:
-#             return 0.0
-#             #return f"Could not find 'Fraxlend V1 FRAX/FXS' or associated fees/rewards on {url}"
-#
-#     except Exception as e:
-#         return 0.0
-#         #return f"An error occurred: {e}"
 
 def process_pairs():
-    logger.info(f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
-    send_to_telegram("Тест: Сервер запущен, начинаем парсинг")
-    options = Options()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--window-size=1280,720')
-    options.add_argument('--disable-extensions')
-    options.add_argument('--blink-settings=imagesEnabled=false')
-    options.binary_location = '/usr/bin/chromium'
-
+    """Обрабатывает пары Fraxlend и распределяет инвестиции для максимизации прибыли."""
+    logger.info(
+        f"Запуск функции process_pairs, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+    send_to_telegram("Сервер запущен, начинаем парсинг")
     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
     logger.info(f"Используемый путь к chromedriver: {chromedriver_path}")
 
@@ -565,7 +559,6 @@ def process_pairs():
     v2_params = InterestRateParams()
     v1_model = TimeWeightedVariableInterestRate(v1_params)
     v2_model = VariableInterestRate(v2_params)
-
 
     iteration_count = 0
 
@@ -578,56 +571,41 @@ def process_pairs():
         logger.info(f"Сброс processed_urls для цикла #{iteration_count}")
 
         logger.info(f"Текущий черный список: {BLACKLISTED_PAIRS}")
-        send_to_telegram(f"Начало цикла #{iteration_count}. Текущий черный список: {BLACKLISTED_PAIRS}")
+        send_to_telegram(f"Начало цикла #{iteration_count}. Черный список: {BLACKLISTED_PAIRS}")
 
         if iteration_count % 24 == 0:
             logger.info("Сброс черного списка")
             BLACKLISTED_PAIRS.clear()
             send_to_telegram("Черный список сброшен")
 
+        driver = None
         try:
-            logger.info(f"Начало парсинга пар, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
-            driver = None
-            for attempt in range(3):
-                try:
-                    logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver для списка пар")
-                    driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
-                    logger.info("WebDriver успешно инициализирован для списка пар")
-                    break
-                except Exception as e:
-                    logger.error(f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver: {type(e).__name__}: {e}")
-                    if attempt == 2:
-                        logger.error("Не удалось инициализировать WebDriver после 3 попыток.")
-                        send_to_telegram("Ошибка: Не удалось инициализировать WebDriver. Проверьте конфигурацию.")
-                        return
-                    time.sleep(2)
+            logger.info(f"Инициализация WebDriver для цикла #{iteration_count}")
+            kill_chromedriver()
+            driver = get_driver(chromedriver_path)
+            logger.info("WebDriver успешно инициализирован")
 
             pair_links = get_pair_links(driver)
-            bonus = get_fraxlend_fxs_lower_bound(driver)
-
-            logger.info(f"Bonus> {bonus}")
             logger.info(f"Полученные пары: {pair_links}")
-            if driver:
-                try:
-                    driver.quit()
-                except WebDriverException:
-                    logger.info("Игнорируется WebDriverException при закрытии WebDriver для списка пар")
-                kill_chromedriver()
-                logger.info(f"WebDriver закрыт после получения списка пар, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
-            logger.info(f"Найдено пар: {len(pair_links)}")
             if not pair_links:
                 logger.warning("Список пар пуст. Пропускаем итерацию.")
                 send_to_telegram("Предупреждение: Список пар пуст. Проверьте сайт или селектор.")
                 time.sleep(CHECK_INTERVAL)
                 continue
 
-            skipped_pairs = []
+            frax_fxs_pair = "https://facts.frax.finance/fraxlend/pairs/0xdbe88dbac39263c47629ebba02b3ef4cf0752a72"
+            bonus = get_fraxlend_fxs_lower_bound(driver) if frax_fxs_pair in pair_links else 0.0
+            logger.info(f"Bonus for FRAX/FXS: {bonus}%")
 
+            pairs_data = []
+            skipped_pairs = []
             for url in tqdm(pair_links, desc="Обработка пар"):
                 if time.time() - iteration_start_time > MAX_ITERATION_TIME:
-                    logger.warning(f"Превышено максимальное время итерации ({MAX_ITERATION_TIME} секунд). Пропускаем оставшиеся пары.")
-                    send_to_telegram(f"Превышено время итерации ({MAX_ITERATION_TIME} секунд). Пропущено {len(pair_links) - pair_links.index(url)} пар.")
+                    logger.warning(
+                        f"Превышено максимальное время итерации ({MAX_ITERATION_TIME} секунд). Пропускаем оставшиеся пары.")
+                    send_to_telegram(
+                        f"Превышено время итерации ({MAX_ITERATION_TIME} секунд). Пропущено {len(pair_links) - pair_links.index(url)} пар.")
                     break
 
                 if url in processed_urls or url in BLACKLISTED_PAIRS:
@@ -636,76 +614,48 @@ def process_pairs():
                     continue
 
                 logger.info(f"Обработка пары: {url}")
-                driver = None
-                for attempt in range(3):
-                    try:
-                        logger.info(f"Попытка {attempt + 1}/3: Инициализация WebDriver для {url}")
-                        driver = webdriver.Chrome(service=Service(chromedriver_path), options=options)
-                        logger.info(f"WebDriver успешно инициализирован для {url}")
-                        break
-                    except Exception as e:
-                        logger.error(f"Попытка {attempt + 1}/3: Ошибка инициализации WebDriver для {url}: {type(e).__name__}: {e}")
-                        if attempt == 2:
-                            logger.error(f"Не удалось инициализировать WebDriver для {url} после 3 попыток.")
-                            send_to_telegram(f"Ошибка: Не удалось инициализировать WebDriver для {url}.")
-                            break
-                        time.sleep(2)
+                data = fetch_metrics(driver, url)
+                logger.info(f"Полученные данные для {url}: {data}")
 
-                if driver:
-                    data = fetch_metrics(driver, url)
-                    logger.info(f"Полученные данные для {url}: {data}")
-                    if all(data.get(label, "N/A") == "N/A" for label in ["Available Liquidity", "Utilization Rate", "Lend APR", "Reserve Size"]):
-                        logger.info(f"Пропущена пара из-за некорректных данных: {url}")
-                        processed_urls.add(url)
-                        send_to_telegram(f"Пропущена пара {url} (Collateral: {data.get('Collateral', 'N/A')}) из-за некорректных данных: {data}")
-                    else:
-                        optimal_investment, max_profit, optimal_lend_apr, optimal_utilization = calculate_optimal_investment(data, v1_model, v2_model)
+                if all(data.get(label, "N/A") == "N/A" for label in
+                       ["Available Liquidity", "Utilization Rate", "Lend APR", "Reserve Size"]):
+                    logger.info(f"Пропущена пара из-за некорректных данных: {url}")
+                    processed_urls.add(url)
+                    send_to_telegram(
+                        f"Пропущена пара {url} (Collateral: {data.get('Collateral', 'N/A')}) из-за некорректных данных: {data}")
+                    continue
 
-                        rate_type = data.get("Rate Type", "N/A")
-                        collateral = data.get("Collateral", "N/A")
-                        pair_address = url.split("/")[-1].lower()
-                        if optimal_investment is not None:
-                            timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
-                            b = ""
-                            s = 0
-                            if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
-                                b = "+" + str(bonus)
-                                s = (optimal_investment * bonus / 100) / 365.24
-                                optimal_lend_apr = optimal_lend_apr + bonus
-                                max_profit = max_profit + s
-                                #bonus = get_fraxlend_fxs_lower_bound(chromedriver_path)
+                pairs_data.append(data)
+                processed_urls.add(url)
 
-
-                            message = (
-                                f" Пара: {collateral} ({url}, {rate_type})\n"
-                                f"Timestamp (UTC): {timestamp} +3 часа\n"
-                                f"Старая Lend APR: {data.get('Lend APR')} {b})\n"
-                                f"Новая оптимальная Lend APR: {optimal_lend_apr:,.2f} %\n"
-                                f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
-                                f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
-                                f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
-                                f"Available Liquidity: {data.get('Available Liquidity')}\n"
-                                f"Utilization Rate: {data.get('Utilization Rate')}\n"
-                                f"Borrow APR: {data.get('Borrow APR')}\n"
-                                f"Reserve Size: {data.get('Reserve Size')}\n"
-                                f"Rate Type: {rate_type}"
-                            )
-
-                            send_to_telegram(message)
-                            processed_urls.add(url)
-                        else:
-                            logger.info(f"Пара {url} не прошла фильтры: {data}")
-
-                    peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
-                    logger.info(f"Память после обработки {url}: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
-                    logger.info(f"Пиковая память в итерации: {peak_memory:.2f} MB")
-
-                    try:
-                        driver.quit()
-                    except WebDriverException:
-                        logger.info(f"Игнорируется WebDriverException при закрытии WebDriver для {url}")
-                    kill_chromedriver()
-                    logger.info(f"WebDriver закрыт после обработки {url}, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+            if pairs_data:
+                allocated_pairs = optimize_investment_distribution(pairs_data, v1_model, v2_model, TOTAL_INVESTMENT,
+                                                                   bonus)
+                if allocated_pairs:
+                    total_daily_profit = sum(p["daily_profit"] for p in allocated_pairs)
+                    message = f"Результаты распределения инвестиций (${TOTAL_INVESTMENT:,.2f}):\n"
+                    for pair in allocated_pairs:
+                        data = pair["data"]
+                        message += (
+                            f"\nПара: {data.get('Collateral', 'N/A')} ({data.get('Rate Type', 'N/A')})\n"
+                            f"Ссылка: {data.get('Link')}\n"
+                            f"Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                            f"Текущая Lend APR: {data.get('Lend APR')} {'+' + str(bonus) if data.get('Link').split('/')[-1].lower() == '0xdbe88dbac39263c47629ebba02b3ef4cf0752a72' else ''}\n"
+                            f"Новая Lend APR: {pair['new_lend_apr']:,.2f}%\n"
+                            f"Инвестировано: ${pair['investment']:,.2f}\n"
+                            f"Доход за день: ${pair['daily_profit']:,.2f}\n"
+                            f"Новая утилизация: {pair['new_utilization'] * 100:.2f}%\n"
+                            f"Ликвидность: {data.get('Available Liquidity')}\n"
+                            f"Текущая утилизация: {data.get('Utilization Rate')}\n"
+                            f"Borrow APR: {data.get('Borrow APR')}\n"
+                            f"Резерв: {data.get('Reserve Size')}\n"
+                        )
+                    message += f"\nОбщий доход за день: ${total_daily_profit:,.2f}"
+                    send_to_telegram(message)
+                else:
+                    send_to_telegram("Не найдено подходящих пар для инвестиций.")
+            else:
+                send_to_telegram("Нет данных о пар для обработки.")
 
             if skipped_pairs:
                 send_to_telegram(f"Пропущенные пары в цикле #{iteration_count}: {', '.join(skipped_pairs)}")
@@ -719,9 +669,9 @@ def process_pairs():
                 try:
                     driver.quit()
                 except WebDriverException:
-                    logger.info("Игнорируется WebDriverException при закрытии WebDriver в finally")
+                    logger.info("Игнорируется WebDriverException при закрытии WebDriver")
                 kill_chromedriver()
-                logger.info(f"WebDriver закрыт в finally, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+                logger.info(f"WebDriver закрыт, память: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
 
             elapsed_time = time.time() - iteration_start_time
             logger.info(f"Итерация завершена за {elapsed_time:.2f} секунд")
@@ -733,15 +683,16 @@ def process_pairs():
                 time.sleep(sleep_time)
                 remaining_time -= sleep_time
                 peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
-                #logger.info(
-                    #f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutilsutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
+                logger.info(
+                    f"Ожидание, осталось {remaining_time} секунд, использование памяти: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, пиковая память: {peak_memory:.2f} MB")
+
 
 def main():
-
-
+    """Основная функция для запуска обработки пар."""
     logger.info("Запуск Background Worker")
-    send_to_telegram("Тест: Background Worker запущен")
+    send_to_telegram("Background Worker запущен")
     process_pairs()
+
 
 if __name__ == "__main__":
     main()
