@@ -18,7 +18,7 @@ import subprocess
 import re
 from bs4 import BeautifulSoup
 
-MIN_APR = 6 #порог для ставки land APR
+MIN_APR = 5 #порог для ставки land APR
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
@@ -430,8 +430,12 @@ def get_fraxlend_fxs_lower_bound(driver) -> float:
 
     try:
 
-        time.sleep(5)
+        #time.sleep(5)
          # Wait for dynamic content
+        # Ждем появления целевого элемента
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Fraxlend V1 FRAX/FXS')]"))
+        )
 
         # Parse page source
         soup = BeautifulSoup(driver.page_source, 'html.parser')
