@@ -17,6 +17,7 @@ import psutil
 import subprocess
 import re
 from bs4 import BeautifulSoup
+from itertools import combinations
 
 # Константы
 MIN_APR = 5  # Порог для ставки Lend APR
@@ -27,6 +28,7 @@ SECONDS_PER_YEAR = 365.24 * 24 * 3600  # Глобальная константа
 CHECK_INTERVAL = 60 * 60  # Интервал проверки в секундах (1 час)
 MAX_PAIRS = 100  # Максимальное количество пар
 MAX_ITERATION_TIME = 1200  # Максимальное время на итерацию (10 минут)
+MAX_COMBINATION_PAIRS = 3  # Максимальное количество пар в комбинации для перебора
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -366,19 +368,18 @@ List[Dict]:
                     "daily_profit": daily_profit,
                     "new_lend_apr": new_lend_apr,
                     "new_utilization": new_utilization,
-                    "investment": investment,
-                    "profit_per_dollar": daily_profit / investment if investment > 0 else 0
+                    "investment": investment
                 })
 
     if not pair_profits:
         logger.info("Нет подходящих пар для инвестиций")
         return []
 
-    # Инициализируем лучшее распределение
+    # Проверяем вариант вложения всей суммы в одну пару
     best_allocation = []
     max_total_profit = 0.0
 
-    # Проверяем вложение всей суммы в одну пару
+    # Проверяем каждую пару отдельно с полной суммой инвестиций
     for data in pairs:
         available_liquidity = parse_dollar_amount(data.get("Available Liquidity", "0"))
         if available_liquidity >= total_investment:
@@ -396,57 +397,67 @@ List[Dict]:
                 logger.info(
                     f"Обновлено лучшее вложение: ${total_investment:,.2f} в {data['Link']}, прибыль: ${daily_profit:,.2f}")
 
-    # Итеративное распределение по парам
-    remaining_investment = total_investment
-    allocated_pairs = []
-    used_urls = set()
+    # Проверяем комбинации из нескольких пар (до MAX_COMBINATION_PAIRS)
+    for num_pairs in range(2, min(len(pairs), MAX_COMBINATION_PAIRS + 1)):
+        for pair_combination in combinations(pair_profits, num_pairs):
+            # Проверяем распределение суммы между парами в комбинации
+            total_invested = 0
+            allocation = []
+            total_profit = 0.0
+            for pair in pair_combination:
+                investment = min(pair["investment"], total_investment - total_invested)
+                if investment < MIN_INVESTMENT:
+                    break
+                daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(
+                    pair["data"], v1_model, v2_model, investment, bonus
+                )
+                if daily_profit > 0:
+                    allocation.append({
+                        "data": data,
+                        "investment": investment,
+                        "daily_profit": daily_profit,
+                        "new_lend_apr": new_lend_apr,
+                        "new_utilization": new_utilization
+                    })
+                    total_invested += investment
+                    total_profit += daily_profit
+                else:
+                    break
+            if total_invested <= total_investment and total_profit > max_total_profit:
+                max_total_profit = total_profit
+                best_allocation = allocation
+                logger.info(f"Обновлено лучшее распределение: {len(allocation)} пар, прибыль: ${total_profit:,.2f}")
 
-    while remaining_investment >= MIN_INVESTMENT and pair_profits:
-        # Сортируем по прибыли на доллар, исключая уже использованные пары
-        valid_profits = [p for p in pair_profits if p["data"]["Link"] not in used_urls]
-        if not valid_profits:
-            break
-        valid_profits.sort(key=lambda x: x["profit_per_dollar"], reverse=True)
-        best_option = valid_profits[0]
-        pair_url = best_option["data"]["Link"]
-        available_liquidity = parse_dollar_amount(best_option["data"].get("Available Liquidity", "0"))
-
-        # Проверяем разные суммы инвестиций для этой пары
-        max_investment = min(remaining_investment, available_liquidity)
-        best_investment = 0
-        best_profit = 0
-        best_lend_apr = 0
-        best_utilization = 0
-        for investment in range(MIN_INVESTMENT, int(max_investment) + 1, INVESTMENT_STEP):
-            daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(
-                best_option["data"], v1_model, v2_model, investment, bonus
-            )
-            if daily_profit > best_profit:
-                best_profit = daily_profit
-                best_investment = investment
-                best_lend_apr = new_lend_apr
-                best_utilization = new_utilization
-
-        if best_profit > 0:
-            allocated_pairs.append({
-                "data": best_option["data"],
-                "investment": best_investment,
-                "daily_profit": best_profit,
-                "new_lend_apr": best_lend_apr,
-                "new_utilization": best_utilization
-            })
-            remaining_investment -= best_investment
-            used_urls.add(pair_url)
-            logger.info(f"Инвестировано ${best_investment:,.2f} в {pair_url}, прибыль: ${best_profit:,.2f}")
-        else:
-            break
-
-    # Сравниваем с лучшим вложением в одну пару
-    total_profit = sum(p["daily_profit"] for p in allocated_pairs)
-    if total_profit > max_total_profit:
-        best_allocation = allocated_pairs
-        max_total_profit = total_profit
-        logger.info(f"Обновлено лучшее распределение: {len(best_allocation)} пар, прибыль: ${total_profit:,.2f}")
+    # Если осталась нераспределенная сумма, пытаемся вложить её в самую доходную пару
+    if best_allocation:
+        total_invested = sum(p["investment"] for p in best_allocation)
+        remaining_investment = total_investment - total_invested
+        if remaining_investment >= MIN_INVESTMENT:
+            # Находим самую доходную пару, не использованную в текущем распределении
+            used_urls = {p["data"]["Link"] for p in best_allocation}
+            remaining_profits = [p for p in pair_profits if p["data"]["Link"] not in used_urls]
+            if remaining_profits:
+                remaining_profits.sort(key=lambda x: x["daily_profit"] / x["investment"], reverse=True)
+                best_remaining = remaining_profits[0]
+                investment = min(remaining_investment,
+                                 parse_dollar_amount(best_remaining["data"].get("Available Liquidity", "0")))
+                if investment >= MIN_INVESTMENT:
+                    daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(
+                        best_remaining["data"], v1_model, v2_model, investment, bonus
+                    )
+                    if daily_profit > 0:
+                        best_allocation.append({
+                            "data": data,
+                            "investment": investment,
+                            "daily_profit": daily_profit,
+                            "new_lend_apr": new_lend_apr,
+                            "new_utilization": new_utilization
+                        })
+                        total_profit = sum(p["daily_profit"] for p in best_allocation)
+                        if total_profit > max_total_profit:
+                            max_total_profit = total_profit
+                            logger.info(
+                                f"Добавлено вложение остатка ${investment:,.2f} в {data['Link']}, общая прибыль: ${total_profit:,.2f}")
 
     if not best_allocation:
         logger.info("Не найдено подходящих комбинаций для инвестиций")
