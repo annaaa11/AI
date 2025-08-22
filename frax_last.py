@@ -318,9 +318,9 @@ def calculate_optimal_investment(data, v1_model, v2_model, delta_time=86400.0):
         for investment in investments:
             new_utilization = 1 - (available_liquidity + investment) / (reserve_size + investment)
             logger.debug(f"Investment={investment}, new_utilization={new_utilization:.4f}")
-            if new_utilization < 0.76:
-                logger.debug(f"Пропущено (V2): new_utilization={new_utilization:.4f} < 0.76")
-                continue
+            #if new_utilization < 0.76:
+                #logger.debug(f"Пропущено (V2): new_utilization={new_utilization:.4f} < 0.76")
+                #continue
 
             valid_investments += 1
             new_rate_per_sec, _ = v2_model.get_new_rate(delta_time, new_utilization, old_full_utilization_interest)
