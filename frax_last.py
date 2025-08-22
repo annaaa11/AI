@@ -1671,7 +1671,7 @@ import re
 from bs4 import BeautifulSoup
 
 # Constants
-MIN_APR = 5  # Threshold for Lend APR
+MIN_APR = 10  # Threshold for Lend APR
 TOTAL_INVESTMENT = 200_000  # Total investment amount
 INVESTMENT_STEP = 5_000  # Investment step for optimization
 MIN_INVESTMENT = 3_000  # Minimum investment amount
