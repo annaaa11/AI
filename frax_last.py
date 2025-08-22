@@ -2046,20 +2046,22 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
 
     if not pair_profits:
         logger.info(f"Нет пар с Current Lend APR выше {MIN_APR}%")
+        send_to_telegram(f"Предупреждение: Нет пар с Current Lend APR выше {MIN_APR}%. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
         return []
 
     # Сортируем по Current Lend APR для приоритета
     pair_profits.sort(key=lambda x: x["current_lend_apr"], reverse=True)
+    logger.info(f"Найдено {len(pair_profits)} пар с Current Lend APR > {MIN_APR}%: {[p['data']['Link'] for p in pair_profits]}")
 
     # Оптимизация распределения с использованием динамического программирования
     n = len(pair_profits)
     dp = {}  # Словарь для хранения максимальной прибыли для каждого состояния (инвестиции, использованные пары)
 
     def solve(remaining_investment: float, used_indices: frozenset):
-        if remaining_investment < 0 or not used_indices:  # Изменено условие для предотвращения пропуска
+        if remaining_investment < 0 or not used_indices:
             return 0.0, []
 
-        state = (round(remaining_investment, 2), used_indices)  # Округление для точности
+        state = (round(remaining_investment, 2), used_indices)
         if state in dp:
             return dp[state]
 
@@ -2096,18 +2098,41 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
 
     # Запускаем оптимизацию
     max_profit, best_allocation = solve(total_investment, frozenset())
-    if not best_allocation and pair_profits:  # Проверка на наличие пар перед выводом ошибки
-        logger.warning("Оптимизация не нашла комбинацию, но пары с Current Lend APR > 10% есть. Проверьте ликвидность или логику.")
-        best_allocation = []  # Возвращаем пустой список, но с предупреждением
+    if not best_allocation and pair_profits:
+        logger.warning("Оптимизация не нашла комбинацию, хотя пары с Current Lend APR > 10% есть. Проверьте ликвидность.")
+        send_to_telegram(f"Предупреждение: Оптимизация не нашла комбинацию для {len(pair_profits)} пар с Current Lend APR > {MIN_APR}%. Проверьте ликвидность. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
     elif not best_allocation:
         logger.info("Не найдено подходящих комбинаций для инвестиций")
+        send_to_telegram(f"Информация: Не найдено подходящих комбинаций для инвестиций. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
         return []
 
-    total_profit = sum(p["daily_profit"] for p in best_allocation)
-    remaining_investment = total_investment - sum(p["investment"] for p in best_allocation)
-    if remaining_investment > 0:
-        logger.info(f"Остаток нераспределенных средств: ${remaining_investment:,.2f}")
-        send_to_telegram(f"Остаток нераспределенных средств: ${remaining_investment:,.2f} (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+    # Вывод результатов распределения
+    if best_allocation:
+        total_profit = sum(p["daily_profit"] for p in best_allocation)
+        remaining_investment = total_investment - sum(p["investment"] for p in best_allocation)
+        message = f"Investment distribution results (${total_investment:,.2f}):\n"
+        for pair in best_allocation:
+            data = pair["data"]
+            message += (
+                f"\nPair: {data.get('Collateral', 'N/A')} ({data.get('Rate Type', 'N/A')})\n"
+                f"Link: {data.get('Link')}\n"
+                f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST\n"
+                f"Current Lend APR: {data.get('Lend APR')}\n"
+                f"New Lend APR: {pair['new_lend_apr']:.2f}%\n"
+                f"Invested: ${pair['investment']:,.2f}\n"
+                f"Daily Profit: ${pair['daily_profit']:,.2f}\n"
+                f"New Utilization: {pair['new_utilization'] * 100:.2f}%\n"
+                f"Liquidity: {data.get('Available Liquidity')}\n"
+                f"Current Utilization: {data.get('Utilization Rate')}\n"
+                f"Borrow APR: {data.get('Borrow APR')}\n"
+                f"Reserve: {data.get('Reserve Size')}\n"
+            )
+        message += f"\nTotal daily profit: ${total_profit:,.2f}"
+        if remaining_investment > 0:
+            message += f"\nОстаток нераспределенных средств: ${remaining_investment:,.2f}"
+        send_to_telegram(message)
+    else:
+        send_to_telegram("Ошибка: Не удалось распределить инвестиции. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
 
     return best_allocation
 
