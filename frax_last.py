@@ -2017,6 +2017,8 @@ def calculate_pair_profit(data: Dict, v1_model, v2_params, investment: float, bo
 def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, total_investment: float, bonus: float) -> List[Dict]:
     """Оптимизирует распределение инвестиций между парами для максимизации дневной прибыли на основе Current Lend APR."""
     pair_profits = []
+    total_liquidity = 0
+    processed_urls = set()  # Для отслеживания обработанных URL
     for data in pairs:
         # Извлекаем Current Lend APR из данных
         current_lend_apr_str = data.get("Lend APR", "0").replace("%", "").strip()
@@ -2025,24 +2027,27 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
         max_investment = min(total_investment, available_liquidity)
         investments = range(MIN_INVESTMENT, int(max_investment) + 1, INVESTMENT_STEP)
 
-        # Логируем только один раз для каждой пары
-        logger.info(f"Parsed data: Lend APR={current_lend_apr}, Utilization={data.get('Utilization Rate', 'N/A')}, "
-                    f"Available Liquidity={available_liquidity}, Reserve Size={parse_dollar_amount(data.get('Reserve Size', '0'), True)}, "
-                    f"Rate Type={data.get('Rate Type', 'N/A')}")
+        pair_url = data.get("Link", "")
+        if pair_url not in processed_urls:  # Пропускаем дубликаты
+            logger.info(f"Parsed data: Lend APR={current_lend_apr}, Utilization={data.get('Utilization Rate', 'N/A')}, "
+                        f"Available Liquidity={available_liquidity}, Reserve Size={parse_dollar_amount(data.get('Reserve Size', '0'), True)}, "
+                        f"Rate Type={data.get('Rate Type', 'N/A')}, Link={pair_url}")
+            total_liquidity += available_liquidity
+            processed_urls.add(pair_url)
 
-        for investment in investments:
-            daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(data, v1_model, v2_params,
-                                                                                      investment, bonus)
-            if daily_profit > 0 and current_lend_apr > MIN_APR / 100:  # Фильтр по Current Lend APR
-                pair_profits.append({
-                    "data": data,
-                    "daily_profit": daily_profit,
-                    "new_lend_apr": new_lend_apr,
-                    "current_lend_apr": current_lend_apr,
-                    "new_utilization": new_utilization,
-                    "investment": investment,
-                    "profit_per_dollar": daily_profit / investment if investment > 0 else 0
-                })
+            for investment in investments:
+                daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(data, v1_model, v2_params,
+                                                                                          investment, bonus)
+                if daily_profit > 0 and current_lend_apr > MIN_APR / 100:  # Фильтр по Current Lend APR
+                    pair_profits.append({
+                        "data": data,
+                        "daily_profit": daily_profit,
+                        "new_lend_apr": new_lend_apr,
+                        "current_lend_apr": current_lend_apr,
+                        "new_utilization": new_utilization,
+                        "investment": investment,
+                        "profit_per_dollar": daily_profit / investment if investment > 0 else 0
+                    })
 
     if not pair_profits:
         logger.info(f"Нет пар с Current Lend APR выше {MIN_APR}%")
@@ -2051,14 +2056,15 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
 
     # Сортируем по Current Lend APR для приоритета
     pair_profits.sort(key=lambda x: x["current_lend_apr"], reverse=True)
-    logger.info(f"Найдено {len(pair_profits)} пар с Current Lend APR > {MIN_APR}%: {[p['data']['Link'] for p in pair_profits]}")
+    logger.info(f"Найдено {len(pair_profits)} уникальных пар с Current Lend APR > {MIN_APR}%: {[p['data']['Link'] for p in pair_profits]}")
+    logger.info(f"Общая доступная ликвидность: ${total_liquidity:,.2f}")
 
-    # Оптимизация распределения с использованием динамического программирования
+    # Оптимизация распределения
     n = len(pair_profits)
-    dp = {}  # Словарь для хранения максимальной прибыли для каждого состояния (инвестиции, использованные пары)
+    dp = {}
 
     def solve(remaining_investment: float, used_indices: frozenset):
-        if remaining_investment < 0 or not used_indices:
+        if remaining_investment <= 0 or not used_indices:
             return 0.0, []
 
         state = (round(remaining_investment, 2), used_indices)
@@ -2076,22 +2082,22 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
                 max_investment = min(remaining_investment, available_liquidity)
 
                 if max_investment >= MIN_INVESTMENT:
-                    # Тестируем различные суммы инвестиций
-                    for investment in range(MIN_INVESTMENT, int(max_investment) + 1, INVESTMENT_STEP):
-                        daily_profit, new_lend_apr, new_utilization, _ = calculate_pair_profit(
-                            pair["data"], v1_model, v2_params, investment, bonus
-                        )
-                        if daily_profit > 0:
-                            new_used = frozenset(used_indices | {i})
-                            sub_profit, sub_allocation = solve(remaining_investment - investment, new_used)
-                            total_profit = daily_profit + sub_profit
+                    for investment in range(int(max_investment), MIN_INVESTMENT - 1, -INVESTMENT_STEP):
+                        if investment <= remaining_investment:
+                            daily_profit, new_lend_apr, new_utilization, _ = calculate_pair_profit(
+                                pair["data"], v1_model, v2_params, investment, bonus
+                            )
+                            if daily_profit > 0:
+                                new_used = frozenset(used_indices | {i})
+                                sub_profit, sub_allocation = solve(remaining_investment - investment, new_used)
+                                total_profit = daily_profit + sub_profit
 
-                            if total_profit > max_profit:
-                                max_profit = total_profit
-                                best_allocation = [
-                                    {"data": pair["data"], "investment": investment, "daily_profit": daily_profit,
-                                     "new_lend_apr": new_lend_apr, "new_utilization": new_utilization}
-                                ] + sub_allocation
+                                if total_profit > max_profit:
+                                    max_profit = total_profit
+                                    best_allocation = [
+                                        {"data": pair["data"], "investment": investment, "daily_profit": daily_profit,
+                                         "new_lend_apr": new_lend_apr, "new_utilization": new_utilization}
+                                    ] + sub_allocation
 
         dp[state] = (max_profit, best_allocation)
         return dp[state]
@@ -2099,8 +2105,11 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
     # Запускаем оптимизацию
     max_profit, best_allocation = solve(total_investment, frozenset())
     if not best_allocation and pair_profits:
-        logger.warning("Оптимизация не нашла комбинацию, хотя пары с Current Lend APR > 10% есть. Проверьте ликвидность.")
-        send_to_telegram(f"Предупреждение: Оптимизация не нашла комбинацию для {len(pair_profits)} пар с Current Lend APR > {MIN_APR}%. Проверьте ликвидность. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+        logger.warning(f"Оптимизация не нашла комбинацию для {len(pair_profits)} уникальных пар с Current Lend APR > {MIN_APR}%. "
+                       f"Общая ликвидность (${total_liquidity:,.2f}) может быть недостаточной для ${total_investment:,.2f}.")
+        send_to_telegram(f"Предупреждение: Оптимизация не нашла комбинацию для {len(pair_profits)} уникальных пар с Current Lend APR > {MIN_APR}%. "
+                         f"Общая ликвидность (${total_liquidity:,.2f}) может быть недостаточной для ${total_investment:,.2f}. "
+                         f"(Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
     elif not best_allocation:
         logger.info("Не найдено подходящих комбинаций для инвестиций")
         send_to_telegram(f"Информация: Не найдено подходящих комбинаций для инвестиций. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
@@ -2233,11 +2242,150 @@ def get_fraxlend_fxs_lower_bound(driver) -> float:
         return 0.0
 
 
+# def process_pairs():
+#     """Processes Fraxlend pairs and distributes investments to maximize profit."""
+#     logger.info(
+#         f"Starting process_pairs, memory usage: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#     send_to_telegram("Server started, beginning parsing (Время: 11:18 AM EEST, Friday, August 22, 2025)")
+#     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
+#     logger.info(f"Using chromedriver path: {chromedriver_path}")
+#
+#     v1_params = TimeWeightedInterestRateParams()
+#     v2_params = InterestRateParams()
+#     v1_model = TimeWeightedVariableInterestRate(v1_params)
+#
+#     iteration_count = 0
+#
+#     while True:
+#         iteration_start_time = time.time()
+#         iteration_count += 1
+#         peak_memory = psutil.Process().memory_info().rss / 1024 / 1024
+#
+#         processed_urls = set()
+#         logger.info(f"Reset processed_urls for cycle #{iteration_count}")
+#
+#         logger.info(f"Current blacklist: {BLACKLISTED_PAIRS}")
+#         send_to_telegram(f"Starting cycle #{iteration_count}. Blacklist: {BLACKLISTED_PAIRS} (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+#
+#         if iteration_count % 24 == 0:
+#             logger.info("Resetting blacklist")
+#             BLACKLISTED_PAIRS.clear()
+#             send_to_telegram(f"Blacklist reset (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+#
+#         driver = None
+#         try:
+#             logger.info(f"Initializing WebDriver for cycle #{iteration_count}")
+#             kill_chromedriver()
+#             driver = get_driver(chromedriver_path)
+#             logger.info("WebDriver successfully initialized")
+#
+#             pair_links = get_pair_links(driver)
+#             logger.info(f"Retrieved pairs: {pair_links}")
+#
+#             if not pair_links:
+#                 logger.warning("Pair list is empty. Skipping iteration.")
+#                 send_to_telegram(f"Warning: Pair list is empty. Check website or selector. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+#                 time.sleep(CHECK_INTERVAL)
+#                 continue
+#
+#             frax_fxs_pair = "https://facts.frax.finance/fraxlend/pairs/0xdbe88dbac39263c47629ebba02b3ef4cf0752a72"
+#             bonus = get_fraxlend_fxs_lower_bound(driver) if frax_fxs_pair in pair_links else 0.0
+#             logger.info(f"Bonus for FRAX/FXS: {bonus}%")
+#
+#             pairs_data = []
+#             skipped_pairs = []
+#             for url in tqdm(pair_links, desc="Processing pairs"):
+#                 if time.time() - iteration_start_time > MAX_ITERATION_TIME:
+#                     logger.warning(
+#                         f"Exceeded maximum iteration time ({MAX_ITERATION_TIME} seconds). Skipping remaining pairs.")
+#                     send_to_telegram(
+#                         f"Exceeded iteration time ({MAX_ITERATION_TIME} seconds). Skipped {len(pair_links) - pair_links.index(url)} pairs. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+#                     break
+#
+#                 if url in processed_urls or url in BLACKLISTED_PAIRS:
+#                     logger.info(f"Skipped pair (already processed or in blacklist): {url}")
+#                     skipped_pairs.append(url)
+#                     continue
+#
+#                 logger.info(f"Processing pair: {url}")
+#                 data = fetch_metrics(driver, url)
+#                 logger.info(f"Retrieved data for {url}: {data}")
+#
+#                 if all(data.get(label, "N/A") == "N/A" for label in
+#                        ["Available Liquidity", "Utilization Rate", "Lend APR", "Reserve Size"]):
+#                     logger.info(f"Skipped pair due to invalid data: {url}")
+#                     processed_urls.add(url)
+#                     send_to_telegram(
+#                         f"Skipped pair {url} (Collateral: {data.get('Collateral', 'N/A')}) due to invalid data: {data} (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+#                     continue
+#
+#                 pairs_data.append(data)
+#                 processed_urls.add(url)
+#
+#             if pairs_data:
+#                 allocated_pairs = optimize_investment_distribution(pairs_data, v1_model, v2_params, TOTAL_INVESTMENT,
+#                                                                   bonus)
+#                 if allocated_pairs:
+#                     total_daily_profit = sum(p["daily_profit"] for p in allocated_pairs)
+#                     message = f"Investment distribution results (${TOTAL_INVESTMENT:,.2f}):\n"
+#                     for pair in allocated_pairs:
+#                         data = pair["data"]
+#                         message += (
+#                             f"\nPair: {data.get('Collateral', 'N/A')} ({data.get('Rate Type', 'N/A')})\n"
+#                             f"Link: {data.get('Link')}\n"
+#                             f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST\n"
+#                             f"Current Lend APR: {data.get('Lend APR')} {'+' + str(bonus) + '%' if data.get('Link').split('/')[-1].lower() == '0xdbe88dbac39263c47629ebba02b3ef4cf0752a72' else ''}\n"
+#                             f"New Lend APR: {pair['new_lend_apr']:.2f}%\n"
+#                             f"Invested: ${pair['investment']:,.2f}\n"
+#                             f"Daily Profit: ${pair['daily_profit']:,.2f}\n"
+#                             f"New Utilization: {pair['new_utilization'] * 100:.2f}%\n"
+#                             f"Liquidity: {data.get('Available Liquidity')}\n"
+#                             f"Current Utilization: {data.get('Utilization Rate')}\n"
+#                             f"Borrow APR: {data.get('Borrow APR')}\n"
+#                             f"Reserve: {data.get('Reserve Size')}\n"
+#                         )
+#                     message += f"\nTotal daily profit: ${total_daily_profit:,.2f}"
+#                     send_to_telegram(message)
+#                 else:
+#                     send_to_telegram("No suitable pairs found for investment. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+#             else:
+#                 send_to_telegram("No pair data to process. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+#
+#             if skipped_pairs:
+#                 send_to_telegram(f"Skipped pairs in cycle #{iteration_count}: {', '.join(skipped_pairs)} (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+#
+#         except Exception as e:
+#             logger.error(f"Error processing pairs: {type(e).__name__}: {e}")
+#             send_to_telegram(f"Error processing pairs: {type(e).__name__}: {e} (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+#
+#         finally:
+#             if driver:
+#                 try:
+#                     driver.quit()
+#                 except WebDriverException:
+#                     logger.info("Ignoring WebDriverException on WebDriver close")
+#                 kill_chromedriver()
+#                 logger.info(f"WebDriver closed, memory: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
+#
+#             elapsed_time = time.time() - iteration_start_time
+#             logger.info(f"Iteration completed in {elapsed_time:.2f} seconds")
+#             logger.info(f"Peak memory in iteration: {peak_memory:.2f} MB")
+#             logger.info(f"Waiting {CHECK_INTERVAL} seconds before next iteration")
+#             remaining_time = CHECK_INTERVAL
+#             while remaining_time > 0:
+#                 sleep_time = min(30, remaining_time)
+#                 time.sleep(sleep_time)
+#                 remaining_time -= sleep_time
+#                 peak_memory = max(peak_memory, psutil.Process().memory_info().rss / 1024 / 1024)
+#                 logger.info(
+#                     f"Waiting, {remaining_time} seconds left, memory usage: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, peak memory: {peak_memory:.2f} MB")
+#
+
 def process_pairs():
     """Processes Fraxlend pairs and distributes investments to maximize profit."""
     logger.info(
         f"Starting process_pairs, memory usage: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
-    send_to_telegram("Server started, beginning parsing (Время: 11:18 AM EEST, Friday, August 22, 2025)")
+    send_to_telegram("Server started, beginning parsing (Время: 12:44 PM EEST, Friday, August 22, 2025)")
     chromedriver_path = os.getenv("CHROMEDRIVER_PATH", "/usr/bin/chromedriver")
     logger.info(f"Using chromedriver path: {chromedriver_path}")
 
@@ -2271,7 +2419,7 @@ def process_pairs():
             logger.info("WebDriver successfully initialized")
 
             pair_links = get_pair_links(driver)
-            logger.info(f"Retrieved pairs: {pair_links}")
+            logger.info(f"Retrieved unique pairs: {pair_links}")
 
             if not pair_links:
                 logger.warning("Pair list is empty. Skipping iteration.")
@@ -2284,37 +2432,51 @@ def process_pairs():
             logger.info(f"Bonus for FRAX/FXS: {bonus}%")
 
             pairs_data = []
-            skipped_pairs = []
-            for url in tqdm(pair_links, desc="Processing pairs"):
-                if time.time() - iteration_start_time > MAX_ITERATION_TIME:
-                    logger.warning(
-                        f"Exceeded maximum iteration time ({MAX_ITERATION_TIME} seconds). Skipping remaining pairs.")
-                    send_to_telegram(
-                        f"Exceeded iteration time ({MAX_ITERATION_TIME} seconds). Skipped {len(pair_links) - pair_links.index(url)} pairs. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
-                    break
+            skipped_pairs = set()  # Используем set для уникальности
+            with tqdm(total=len(pair_links), desc="Processing pairs", leave=True) as pbar:
+                for url in pair_links:
+                    if time.time() - iteration_start_time > MAX_ITERATION_TIME:
+                        logger.warning(
+                            f"Exceeded maximum iteration time ({MAX_ITERATION_TIME} seconds). Skipping remaining pairs.")
+                        send_to_telegram(
+                            f"Exceeded iteration time ({MAX_ITERATION_TIME} seconds). Skipped {len([u for u in pair_links if u not in processed_urls])} pairs. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+                        break
 
-                if url in processed_urls or url in BLACKLISTED_PAIRS:
-                    logger.info(f"Skipped pair (already processed or in blacklist): {url}")
-                    skipped_pairs.append(url)
-                    continue
+                    if url in processed_urls or url in BLACKLISTED_PAIRS:
+                        logger.debug(f"Skipped pair (already processed or in blacklist): {url}")
+                        skipped_pairs.add(url)
+                        pbar.update(1)
+                        continue
 
-                logger.info(f"Processing pair: {url}")
-                data = fetch_metrics(driver, url)
-                logger.info(f"Retrieved data for {url}: {data}")
+                    logger.info(f"Processing pair: {url}")
+                    data = fetch_metrics(driver, url)
+                    logger.debug(f"Retrieved data for {url}: {data}")
 
-                if all(data.get(label, "N/A") == "N/A" for label in
-                       ["Available Liquidity", "Utilization Rate", "Lend APR", "Reserve Size"]):
-                    logger.info(f"Skipped pair due to invalid data: {url}")
+                    if not data or all(data.get(label, "N/A") == "N/A" for label in
+                                       ["Available Liquidity", "Utilization Rate", "Lend APR", "Reserve Size"]):
+                        logger.info(f"Skipped pair due to invalid data: {url}")
+                        processed_urls.add(url)
+                        send_to_telegram(
+                            f"Skipped pair {url} (Collateral: {data.get('Collateral', 'N/A')}) due to invalid data: {data} (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+                        pbar.update(1)
+                        continue
+
+                    pairs_data.append(data)
                     processed_urls.add(url)
-                    send_to_telegram(
-                        f"Skipped pair {url} (Collateral: {data.get('Collateral', 'N/A')}) due to invalid data: {data} (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
-                    continue
-
-                pairs_data.append(data)
-                processed_urls.add(url)
+                    pbar.update(1)
 
             if pairs_data:
-                allocated_pairs = optimize_investment_distribution(pairs_data, v1_model, v2_params, TOTAL_INVESTMENT,
+                # Убедимся, что пары уникальны по URL
+                unique_pairs_data = []
+                seen_urls = set()
+                for data in pairs_data:
+                    url = data.get("Link", "")
+                    if url not in seen_urls:
+                        unique_pairs_data.append(data)
+                        seen_urls.add(url)
+                logger.info(f"Processed {len(unique_pairs_data)} unique pairs for optimization")
+
+                allocated_pairs = optimize_investment_distribution(unique_pairs_data, v1_model, v2_params, TOTAL_INVESTMENT,
                                                                   bonus)
                 if allocated_pairs:
                     total_daily_profit = sum(p["daily_profit"] for p in allocated_pairs)
@@ -2338,7 +2500,7 @@ def process_pairs():
                     message += f"\nTotal daily profit: ${total_daily_profit:,.2f}"
                     send_to_telegram(message)
                 else:
-                    send_to_telegram("No suitable pairs found for investment. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+                    send_to_telegram(f"No suitable pairs found for investment in {len(unique_pairs_data)} unique pairs. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
             else:
                 send_to_telegram("No pair data to process. (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
 
@@ -2371,6 +2533,8 @@ def process_pairs():
                 logger.info(
                     f"Waiting, {remaining_time} seconds left, memory usage: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB, peak memory: {peak_memory:.2f} MB")
 
+# Инициализация счетчика цикла как атрибута функции
+process_pairs.cycle_count = 1
 
 def main():
     """Main function to start pair processing."""
