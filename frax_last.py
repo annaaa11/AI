@@ -2016,7 +2016,7 @@ def calculate_pair_profit(data: Dict, v1_model, v2_params, investment: float, bo
 
 
 def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, total_investment: float, bonus: float) -> List[Dict]:
-    """Optimizes investment distribution among pairs to maximize daily profit."""
+    """Оптимизирует распределение инвестиций между парами для максимизации дневной прибыли на основе New Lend APR."""
     pair_profits = []
     for data in pairs:
         available_liquidity = parse_dollar_amount(data.get("Available Liquidity", "0"))
@@ -2037,94 +2037,65 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
                 })
 
     if not pair_profits:
-        logger.info("No suitable pairs for investment")
+        logger.info("Нет подходящих пар для инвестиций")
         return []
 
-    # Initialize best allocation
+    # Сортируем по New Lend APR для выбора лучших пар
+    pair_profits.sort(key=lambda x: x["new_lend_apr"], reverse=True)
+
+    # Итеративное распределение по парам с учетом New Lend APR
     best_allocation = []
-    max_total_profit = 0.0
-
-    # Check investing the entire amount in one pair
-    for data in pairs:
-        available_liquidity = parse_dollar_amount(data.get("Available Liquidity", "0"))
-        if available_liquidity >= total_investment:
-            daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(data, v1_model, v2_params,
-                                                                                      total_investment, bonus)
-            if daily_profit > max_total_profit:
-                max_total_profit = daily_profit
-                best_allocation = [{
-                    "data": data,
-                    "investment": total_investment,
-                    "daily_profit": daily_profit,
-                    "new_lend_apr": new_lend_apr,
-                    "new_utilization": new_utilization
-                }]
-                logger.info(
-                    f"Updated best investment: ${total_investment:,.2f} in {data['Link']}, profit: ${daily_profit:,.2f}")
-
-    # Iterative distribution across pairs
     remaining_investment = total_investment
-    allocated_pairs = []
     used_urls = set()
 
-    while remaining_investment >= MIN_INVESTMENT and pair_profits:
-        # Sort by profit per dollar, excluding already used pairs
-        valid_profits = [p for p in pair_profits if p["data"]["Link"] not in used_urls]
-        if not valid_profits:
+    for profit_data in pair_profits:
+        if remaining_investment < MIN_INVESTMENT or not pair_profits:
             break
-        valid_profits.sort(key=lambda x: x["profit_per_dollar"], reverse=True)
-        best_option = valid_profits[0]
-        pair_url = best_option["data"]["Link"]
-        available_liquidity = parse_dollar_amount(best_option["data"].get("Available Liquidity", "0"))
 
-        # Check different investment amounts for this pair
+        pair_url = profit_data["data"]["Link"]
+        available_liquidity = parse_dollar_amount(profit_data["data"].get("Available Liquidity", "0"))
         max_investment = min(remaining_investment, available_liquidity)
-        best_investment = 0
-        best_profit = 0
-        best_lend_apr = 0
-        best_utilization = 0
-        for investment in range(MIN_INVESTMENT, int(max_investment) + 1, INVESTMENT_STEP):
-            daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(
-                best_option["data"], v1_model, v2_params, investment, bonus
-            )
-            if daily_profit > best_profit:
-                best_profit = daily_profit
-                best_investment = investment
-                best_lend_apr = new_lend_apr
-                best_utilization = new_utilization
 
-        if best_profit > 0:
-            allocated_pairs.append({
-                "data": best_option["data"],
-                "investment": best_investment,
-                "daily_profit": best_profit,
-                "new_lend_apr": best_lend_apr,
-                "new_utilization": best_utilization
-            })
-            remaining_investment -= best_investment
-            used_urls.add(pair_url)
-            logger.info(f"Invested ${best_investment:,.2f} in {pair_url}, profit: ${best_profit:,.2f}")
-        else:
-            break
+        if pair_url not in used_urls and max_investment >= MIN_INVESTMENT:
+            # Проверяем разные суммы инвестиций для этой пары
+            best_investment = 0
+            best_profit = 0
+            best_lend_apr = profit_data["new_lend_apr"]
+            best_utilization = 0
 
-    # Compare with best single-pair investment
-    total_profit = sum(p["daily_profit"] for p in allocated_pairs)
-    if total_profit > max_total_profit:
-        best_allocation = allocated_pairs
-        max_total_profit = total_profit
-        logger.info(f"Updated best distribution: {len(best_allocation)} pairs, profit: ${total_profit:,.2f}")
+            for investment in range(MIN_INVESTMENT, int(max_investment) + 1, INVESTMENT_STEP):
+                daily_profit, new_lend_apr, new_utilization, _ = calculate_pair_profit(
+                    profit_data["data"], v1_model, v2_params, investment, bonus
+                )
+                if new_lend_apr > best_lend_apr and daily_profit > best_profit:
+                    best_profit = daily_profit
+                    best_investment = investment
+                    best_lend_apr = new_lend_apr
+                    best_utilization = new_utilization
+
+            if best_investment > 0:
+                best_allocation.append({
+                    "data": profit_data["data"],
+                    "investment": best_investment,
+                    "daily_profit": best_profit,
+                    "new_lend_apr": best_lend_apr,
+                    "new_utilization": best_utilization
+                })
+                remaining_investment -= best_investment
+                used_urls.add(pair_url)
+                logger.info(f"Инвестировано ${best_investment:,.2f} в {pair_url}, New Lend APR: {best_lend_apr:.2f}%, прибыль: ${best_profit:,.2f}")
 
     if not best_allocation:
-        logger.info("No suitable combinations for investment found")
+        logger.info("Не найдено подходящих комбинаций для инвестиций")
         return []
 
+    total_profit = sum(p["daily_profit"] for p in best_allocation)
     remaining_investment = total_investment - sum(p["investment"] for p in best_allocation)
     if remaining_investment > 0:
-        logger.info(f"Remaining unallocated funds: ${remaining_investment:,.2f}")
-        send_to_telegram(f"Remaining unallocated funds: ${remaining_investment:,.2f} (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
+        logger.info(f"Остаток нераспределенных средств: ${remaining_investment:,.2f}")
+        send_to_telegram(f"Остаток нераспределенных средств: ${remaining_investment:,.2f} (Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} EEST)")
 
     return best_allocation
-
 
 def send_to_telegram(message: str):
     """Sends a message to Telegram."""
