@@ -2025,6 +2025,11 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
         max_investment = min(total_investment, available_liquidity)
         investments = range(MIN_INVESTMENT, int(max_investment) + 1, INVESTMENT_STEP)
 
+        # Логируем только один раз для каждой пары
+        logger.info(f"Parsed data: Lend APR={current_lend_apr}, Utilization={data.get('Utilization Rate', 'N/A')}, "
+                    f"Available Liquidity={available_liquidity}, Reserve Size={parse_dollar_amount(data.get('Reserve Size', '0'), True)}, "
+                    f"Rate Type={data.get('Rate Type', 'N/A')}")
+
         for investment in investments:
             daily_profit, new_lend_apr, new_utilization, data = calculate_pair_profit(data, v1_model, v2_params,
                                                                                       investment, bonus)
@@ -2051,10 +2056,10 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
     dp = {}  # Словарь для хранения максимальной прибыли для каждого состояния (инвестиции, использованные пары)
 
     def solve(remaining_investment: float, used_indices: frozenset):
-        if remaining_investment < MIN_INVESTMENT or not used_indices:
+        if remaining_investment < 0 or not used_indices:  # Изменено условие для предотвращения пропуска
             return 0.0, []
 
-        state = (remaining_investment, used_indices)
+        state = (round(remaining_investment, 2), used_indices)  # Округление для точности
         if state in dp:
             return dp[state]
 
@@ -2091,8 +2096,10 @@ def optimize_investment_distribution(pairs: List[Dict], v1_model, v2_params, tot
 
     # Запускаем оптимизацию
     max_profit, best_allocation = solve(total_investment, frozenset())
-
-    if not best_allocation:
+    if not best_allocation and pair_profits:  # Проверка на наличие пар перед выводом ошибки
+        logger.warning("Оптимизация не нашла комбинацию, но пары с Current Lend APR > 10% есть. Проверьте ликвидность или логику.")
+        best_allocation = []  # Возвращаем пустой список, но с предупреждением
+    elif not best_allocation:
         logger.info("Не найдено подходящих комбинаций для инвестиций")
         return []
 
