@@ -1375,25 +1375,26 @@ def process_pairs():
 
             if skipped_pairs:
                 send_to_telegram(f"Пропущенные пары в цикле #{iteration_count}: {', '.join(skipped_pairs)}")
+#№№№№№
 
-            # Расчет оптимального распределения
+#
+#pасчет оптимального распределения
             if projects_data:
                 results = calculate_optimal_investment(projects_data, v1_model, v2_model)
+                # Отправка сообщений для варианта 1 (default)
+# Отправка сообщений для варианта 1 (default)
+                send_to_telegram("=== Результаты для варианта 1 (без ограничений на утилизацию) ===")
                 for result in results:
                     link = result['Link']
-                    data = next((d for d in projects_data if d['Link'] == link), {})
-                    rate_type = data.get("Rate Type", "N/A")
-                    collateral = data.get("Collateral", "N/A")
-                    pair_address = link.split("/")[-1].lower()
+                    pair_data = next((data for data in projects_data if data['Link'] == link), {})
+                    collateral = pair_data.get('Collateral', 'N/A')
+                    pair_address = link.split('/')[-1]
 
-                    # Формирование сообщения для варианта 1 (default)
-                    default = result['default']
-                    optimal_investment = default['optimal_investment']
-                    max_profit = default['max_profit']
-                    optimal_lend_apr = default['optimal_lend_apr']
-                    optimal_utilization = default['optimal_utilization']
-                    total_profit_default = default['total_profit']
-
+                    optimal_investment = result['default']['optimal_investment']
+                    max_profit = result['default']['max_profit']
+                    optimal_lend_apr = result['default']['optimal_lend_apr']
+                    optimal_utilization = result['default']['optimal_utilization']
+                    total_profit = result['default']['total_profit']
 
                     if optimal_investment > 0:
                         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
@@ -1404,31 +1405,36 @@ def process_pairs():
                             s = (optimal_investment * bonus / 100) / 365.24
                             optimal_lend_apr += bonus
                             max_profit += s
-                        message = (
+                        send_to_telegram(
                             f"Вариант 1 (без ограничений на утилизацию)\n"
-                            f"Пара: {collateral} ({link}, {rate_type})\n"
+                            f"Пара: {collateral} ({link})\n"
                             f"Timestamp (UTC): {timestamp} +3 часа\n"
-                            f"Старая Lend APR: {data.get('Lend APR')} {b}\n"
-                            f"Новая оптимальная Lend APR: {optimal_lend_apr:,.2f} %\n"
+                            f"Старая Lend APR: {pair_data.get('Lend APR', 'N/A')}\n"
+                            f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%{b}\n"
                             f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
-                            f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
+                            f"Максимальный доход за 1 день: ${max_profit + s:.2f}\n"
                             f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
-                            f"Available Liquidity: {data.get('Available Liquidity')}\n"
-                            f"Utilization Rate: {data.get('Utilization Rate')}\n"
-                            f"Borrow APR: {data.get('Borrow APR')}\n"
-                            f"Reserve Size: {data.get('Reserve Size')}\n"
-                            f"Rate Type: {rate_type}\n"
-                            f"Общая дневная прибыль (все пары): ${total_profit_default:,.2f}"
+                            f"Available Liquidity: {pair_data.get('Available Liquidity', 'N/A')}\n"
+                            f"Utilization Rate: {pair_data.get('Utilization Rate', 'N/A')}\n"
+                            f"Borrow APR: {pair_data.get('Borrow APR', 'N/A')}\n"
+                            f"Reserve Size: {pair_data.get('Reserve Size', 'N/A')}\n"
+                            f"Rate Type: {pair_data.get('Rate Type', 'N/A')}\n"
+                            f"Общая дневная прибыль (все пары): ${total_profit:.2f}"
                         )
-                        send_to_telegram(message)
 
-                    # Формирование сообщения для варианта 2 (v2_utilization_constrained)
-                    constrained = result['v2_utilization_constrained']
-                    optimal_investment = constrained['optimal_investment']
-                    max_profit = constrained['max_profit']
-                    optimal_lend_apr = constrained['optimal_lend_apr']
-                    optimal_utilization = constrained['optimal_utilization']
-                    total_profit_constrained = constrained['total_profit']
+                # Отправка сообщений для варианта 2 (v2_utilization_constrained)
+                send_to_telegram("=== Результаты для варианта 2 (ограничение утилизации V2 > 76%) ===")
+                for result in results:
+                    link = result['Link']
+                    pair_data = next((data for data in projects_data if data['Link'] == link), {})
+                    collateral = pair_data.get('Collateral', 'N/A')
+                    pair_address = link.split('/')[-1]
+
+                    optimal_investment = result['v2_utilization_constrained']['optimal_investment']
+                    max_profit = result['v2_utilization_constrained']['max_profit']
+                    optimal_lend_apr = result['v2_utilization_constrained']['optimal_lend_apr']
+                    optimal_utilization = result['v2_utilization_constrained']['optimal_utilization']
+                    total_profit = result['v2_utilization_constrained']['total_profit']
 
                     if optimal_investment > 0:
                         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
@@ -1439,23 +1445,109 @@ def process_pairs():
                             s = (optimal_investment * bonus / 100) / 365.24
                             optimal_lend_apr += bonus
                             max_profit += s
-                        message = (
-                            f"Вариант 2 (V2: начальная утилизация >= 76%, new_utilization > 0.76)\n"
-                            f"Пара: {collateral} ({link}, {rate_type})\n"
+                        send_to_telegram(
+                            f"Вариант 2 (ограничение утилизации V2 > 76%)\n"
+                            f"Пара: {collateral} ({link})\n"
                             f"Timestamp (UTC): {timestamp} +3 часа\n"
-                            f"Старая Lend APR: {data.get('Lend APR')} {b}\n"
-                            f"Новая оптимальная Lend APR: {optimal_lend_apr:,.2f} %\n"
+                            f"Старая Lend APR: {pair_data.get('Lend APR', 'N/A')}\n"
+                            f"Новая оптимальная Lend APR: {optimal_lend_apr:.2f}%{b}\n"
                             f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
-                            f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
+                            f"Максимальный доход за 1 день: ${max_profit + s:.2f}\n"
                             f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
-                            f"Available Liquidity: {data.get('Available Liquidity')}\n"
-                            f"Utilization Rate: {data.get('Utilization Rate')}\n"
-                            f"Borrow APR: {data.get('Borrow APR')}\n"
-                            f"Reserve Size: {data.get('Reserve Size')}\n"
-                            f"Rate Type: {rate_type}\n"
-                            f"Общая дневная прибыль (все пары): ${total_profit_constrained:,.2f}"
+                            f"Available Liquidity: {pair_data.get('Available Liquidity', 'N/A')}\n"
+                            f"Utilization Rate: {pair_data.get('Utilization Rate', 'N/A')}\n"
+                            f"Borrow APR: {pair_data.get('Borrow APR', 'N/A')}\n"
+                            f"Reserve Size: {pair_data.get('Reserve Size', 'N/A')}\n"
+                            f"Rate Type: {pair_data.get('Rate Type', 'N/A')}\n"
+                            f"Общая дневная прибыль (все пары): ${total_profit:.2f}"
                         )
-                        send_to_telegram(message)
+
+
+
+
+
+#                 for result in results:
+#                     link = result['Link']
+#                     data = next((d for d in projects_data if d['Link'] == link), {})
+#                     rate_type = data.get("Rate Type", "N/A")
+#                     collateral = data.get("Collateral", "N/A")
+#                     pair_address = link.split("/")[-1].lower()
+#
+#                     # Формирование сообщения для варианта 1 (default)
+#                     default = result['default']
+#                     optimal_investment = default['optimal_investment']
+#                     max_profit = default['max_profit']
+#                     optimal_lend_apr = default['optimal_lend_apr']
+#                     optimal_utilization = default['optimal_utilization']
+#                     total_profit_default = default['total_profit']
+#
+#
+#                     if optimal_investment > 0:
+#                         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+#                         b = ""
+#                         s = 0
+#                         if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
+#                             b = "+" + str(bonus)
+#                             s = (optimal_investment * bonus / 100) / 365.24
+#                             optimal_lend_apr += bonus
+#                             max_profit += s
+#                         message = (
+#                             f"Вариант 1 (без ограничений на утилизацию)\n"
+#                             f"Пара: {collateral} ({link}, {rate_type})\n"
+#                             f"Timestamp (UTC): {timestamp} +3 часа\n"
+#                             f"Старая Lend APR: {data.get('Lend APR')} {b}\n"
+#                             f"Новая оптимальная Lend APR: {optimal_lend_apr:,.2f} %\n"
+#                             f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
+#                             f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
+#                             f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
+#                             f"Available Liquidity: {data.get('Available Liquidity')}\n"
+#                             f"Utilization Rate: {data.get('Utilization Rate')}\n"
+#                             f"Borrow APR: {data.get('Borrow APR')}\n"
+#                             f"Reserve Size: {data.get('Reserve Size')}\n"
+#                             f"Rate Type: {rate_type}\n"
+#                             f"Общая дневная прибыль (все пары): ${total_profit_default:,.2f}"
+#                         )
+#                         send_to_telegram(message)
+#
+#                     # Формирование сообщения для варианта 2 (v2_utilization_constrained)
+#                     constrained = result['v2_utilization_constrained']
+#                     optimal_investment = constrained['optimal_investment']
+#                     max_profit = constrained['max_profit']
+#                     optimal_lend_apr = constrained['optimal_lend_apr']
+#                     optimal_utilization = constrained['optimal_utilization']
+#                     total_profit_constrained = constrained['total_profit']
+#
+#                     if optimal_investment > 0:
+#                         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+#                         b = ""
+#                         s = 0
+#                         if pair_address == "0xdbe88dbac39263c47629ebba02b3ef4cf0752a72":
+#                             b = "+" + str(bonus)
+#                             s = (optimal_investment * bonus / 100) / 365.24
+#                             optimal_lend_apr += bonus
+#                             max_profit += s
+#                         message = (
+#                             f"Вариант 2 (V2: начальная утилизация >= 76%, new_utilization > 0.76)\n"
+#                             f"Пара: {collateral} ({link}, {rate_type})\n"
+#                             f"Timestamp (UTC): {timestamp} +3 часа\n"
+#                             f"Старая Lend APR: {data.get('Lend APR')} {b}\n"
+#                             f"Новая оптимальная Lend APR: {optimal_lend_apr:,.2f} %\n"
+#                             f"Оптимальная сумма для вложения: ${optimal_investment:,.2f}\n"
+#                             f"Максимальный доход за 1 день: ${max_profit:,.2f}\n"
+#                             f"Новая ставка утилизации: {optimal_utilization * 100:.2f}%\n"
+#                             f"Available Liquidity: {data.get('Available Liquidity')}\n"
+#                             f"Utilization Rate: {data.get('Utilization Rate')}\n"
+#                             f"Borrow APR: {data.get('Borrow APR')}\n"
+#                             f"Reserve Size: {data.get('Reserve Size')}\n"
+#                             f"Rate Type: {rate_type}\n"
+#                             f"Общая дневная прибыль (все пары): ${total_profit_constrained:,.2f}"
+#                         )
+#                         send_to_telegram(message)
+#№№№№№
+
+
+
+
 
         except Exception as e:
             logger.error(f"Ошибка обработки пар: {type(e).__name__}: {e}")
