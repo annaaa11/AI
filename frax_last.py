@@ -899,7 +899,7 @@ def calculate_profit_for_project(data: Dict, investment: float, v1_model, v2_mod
     if rate_type == "Variable V2":
         old_full_utilization_interest = v2_model.calculate_old_full_utilization_interest(lend_apr, utilization)
         new_rate_per_sec, _ = v2_model.get_new_rate(delta_time, new_utilization, old_full_utilization_interest)
-        new_lend_apr = new_rate_per_sec * seconds_per_year  * 100
+        new_lend_apr = new_rate_per_sec * seconds_per_year * new_utilization * 100
         daily_profit = (investment * new_lend_apr / 100) / 365.24
     elif rate_type == "Variable V1":
         new_lend_apr = v1_model.get_new_lend_apr(delta_time, new_utilization, lend_apr, utilization)
