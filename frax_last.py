@@ -1394,6 +1394,7 @@ def process_pairs():
                     optimal_utilization = default['optimal_utilization']
                     total_profit_default = default['total_profit']
 
+
                     if optimal_investment > 0:
                         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
                         b = ""
