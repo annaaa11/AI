@@ -1884,6 +1884,26 @@ CHAIN_ID = 1
 URL = "https://app.morpho.org/ethereum/borrow"
 MAX_ITERATION_TIME = 1800  # 30 минут в секундах
 
+# def send_to_telegram(message):
+#     """Отправляет сообщение в Telegram."""
+#     if not BOT_TOKEN or not CHAT_IDS:
+#         logger.error("BOT_TOKEN или CHAT_IDS не заданы")
+#         return
+#     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+#     for chat_id in CHAT_IDS:
+#         for attempt in range(3):
+#             try:
+#                 payload = {"chat_id": chat_id, "text": message[:4096]}
+#                 response = requests.post(url, json=payload, timeout=10)
+#                 response.raise_for_status()
+#                 logger.info(f"Сообщение отправлено в Telegram для chat_id {chat_id}")
+#                 break
+#             except requests.RequestException as e:
+#                 logger.error(f"Попытка {attempt + 1}/3: Ошибка отправки в Telegram: {e}")
+#                 if attempt == 2:
+#                     logger.error(f"Не удалось отправить сообщение для chat_id {chat_id}")
+#                 time.sleep(2)
+
 def send_to_telegram(message):
     """Отправляет сообщение в Telegram."""
     if not BOT_TOKEN or not CHAT_IDS:
@@ -1891,18 +1911,28 @@ def send_to_telegram(message):
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     for chat_id in CHAT_IDS:
-        for attempt in range(3):
-            try:
-                payload = {"chat_id": chat_id, "text": message[:4096]}
-                response = requests.post(url, json=payload, timeout=10)
-                response.raise_for_status()
-                logger.info(f"Сообщение отправлено в Telegram для chat_id {chat_id}")
-                break
-            except requests.RequestException as e:
-                logger.error(f"Попытка {attempt + 1}/3: Ошибка отправки в Telegram: {e}")
-                if attempt == 2:
-                    logger.error(f"Не удалось отправить сообщение для chat_id {chat_id}")
-                time.sleep(2)
+        try:
+            payload = {"chat_id": chat_id, "text": message[:4096], "parse_mode": "Markdown"}
+            response = requests.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+            logger.info(f"Сообщение отправлено в Telegram для chat_id {chat_id}")
+        except requests.RequestException as e:
+            logger.error(f"Ошибка отправки в Telegram для chat_id {chat_id}: {e}")
+            if isinstance(e, requests.HTTPError) and e.response.status_code == 400:
+                logger.warning(f"Пропуск chat_id {chat_id} из-за ошибки 400 Bad Request")
+                continue
+            for attempt in range(1, 3):
+                try:
+                    time.sleep(2)
+                    response = requests.post(url, json=payload, timeout=10)
+                    response.raise_for_status()
+                    logger.info(f"Сообщение отправлено в Telegram для chat_id {chat_id} после попытки {attempt + 1}")
+                    break
+                except requests.RequestException as retry_e:
+                    logger.error(f"Попытка {attempt + 1}/3: Ошибка отправки в Telegram: {retry_e}")
+            else:
+                logger.error(f"Не удалось отправить сообщение для chat_id {chat_id}")
+
 
 def get_driver():
     """Инициализирует WebDriver."""
@@ -2401,7 +2431,21 @@ def calculate_optimal_investment(projects_data: List[Dict], max_total_investment
     logger.info(f"Результаты распределения: {results}")
     return results
 
+
 def main():
+    # Check if another instance is running
+    lock_file = "/tmp/morpho_scraper.lock"
+    if os.path.exists(lock_file):
+        with open(lock_file, "r") as f:
+            last_run = float(f.read())
+        if time.time() - last_run < 7200 - 1800:  # Less than 2 hours - 30 minutes
+            logger.info("Другая итерация уже выполняется. Пропуск.")
+            send_to_telegram("Пропуск: Другая итерация уже выполняется.")
+            return
+
+    with open(lock_file, "w") as f:
+        f.write(str(time.time()))
+
     iteration_start_time = time.time()
     logger.info("Запуск Background Worker")
     send_to_telegram("Тест: Background Worker запущен")
@@ -2474,36 +2518,35 @@ def main():
                 for r in results
             ])
             logger.info(f"Итоговые результаты:\n{results_df.to_string(index=False)}")
-            # Формирование сообщения для Telegram
             message = "=== Итоговые результаты распределения капитала ===\n\n"
             message += "Вариант 1 (без ограничений на утилизацию):\n"
             for _, row in results_df.iterrows():
                 if row['Default Investment (USD)'] > 0:
                     message += (
-                        f"Рынок: {row['Market']}\n"
-                        f"Trusted By: {row['Trusted By']}\n"
-                        f"Ссылка: {row['Link']}\n"
-                        f"Инвестиция: ${row['Default Investment (USD)']:,.2f}\n"
-                        f"Дневная прибыль: ${row['Default Daily Profit (USD)']:,.2f}\n"
-                        f"Lend APR: {row['Default Lend APR (%)']:.2f}%\n"
-                        f"Утилизация: {row['Default Utilization (%)']:.2f}%\n"
+                        f"*Рынок*: {row['Market']}\n"
+                        f"*Trusted By*: {row['Trusted By']}\n"
+                        f"*Ссылка*: {row['Link']}\n"
+                        f"*Инвестиция*: ${row['Default Investment (USD)']:,.2f}\n"
+                        f"*Дневная прибыль*: ${row['Default Daily Profit (USD)']:,.2f}\n"
+                        f"*Lend APR*: {row['Default Lend APR (%)']:.2f}%\n"
+                        f"*Утилизация*: {row['Default Utilization (%)']:.2f}%\n"
                         f"---\n"
                     )
-            message += f"Общая дневная прибыль: ${results_df['Default Total Profit (USD)'].iloc[0]:,.2f}\n\n"
+            message += f"*Общая дневная прибыль*: ${results_df['Default Total Profit (USD)'].iloc[0]:,.2f}\n\n"
             message += "Вариант 2 (ограничение утилизации > 90%):\n"
             for _, row in results_df.iterrows():
                 if row['Constrained Investment (USD)'] > 0:
                     message += (
-                        f"Рынок: {row['Market']}\n"
-                        f"Trusted By: {row['Trusted By']}\n"
-                        f"Ссылка: {row['Link']}\n"
-                        f"Инвестиция: ${row['Constrained Investment (USD)']:,.2f}\n"
-                        f"Дневная прибыль: ${row['Constrained Daily Profit (USD)']:,.2f}\n"
-                        f"Lend APR: {row['Constrained Lend APR (%)']:.2f}%\n"
-                        f"Утилизация: {row['Constrained Utilization (%)']:.2f}%\n"
+                        f"*Рынок*: {row['Market']}\n"
+                        f"*Trusted By*: {row['Trusted By']}\n"
+                        f"*Ссылка*: {row['Link']}\n"
+                        f"*Инвестиция*: ${row['Constrained Investment (USD)']:,.2f}\n"
+                        f"*Дневная прибыль*: ${row['Constrained Daily Profit (USD)']:,.2f}\n"
+                        f"*Lend APR*: {row['Constrained Lend APR (%)']:.2f}%\n"
+                        f"*Утилизация*: {row['Constrained Utilization (%)']:.2f}%\n"
                         f"---\n"
                     )
-            message += f"Общая дневная прибыль: ${results_df['Constrained Total Profit (USD)'].iloc[0]:,.2f}\n"
+            message += f"*Общая дневная прибыль*: ${results_df['Constrained Total Profit (USD)'].iloc[0]:,.2f}\n"
             send_to_telegram(message)
         else:
             logger.warning("Результаты распределения капитала пусты.")
@@ -2517,6 +2560,8 @@ def main():
             logger.info("WebDriver закрыт.")
         elapsed_time = time.time() - iteration_start_time
         logger.info(f"Итерация завершена за {elapsed_time:.2f} секунд")
+        if os.path.exists(lock_file):
+            os.remove(lock_file)
 
 if __name__ == "__main__":
     main()
