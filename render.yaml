@@ -1,0 +1,13 @@
+services:
+  - type: worker
+    name: morpho-scraper
+    env: docker
+    dockerfilePath: ./Dockerfile
+    schedule: "0 */2 * * *" # Запуск каждые 2 часа
+    envVars:
+      - key: CHROMEDRIVER_PATH
+        value: /usr/bin/chromedriver
+#      - key: BOT_TOKEN
+#        value: 8060812740:AAEBXpMOoCZ2RdD8JY7pO0EXf0aQQN6jQJg # Замените на ваш токен
+#      - key: CHAT_IDS
+#        value: 6192278046,306507209 # Замените на ваши ID

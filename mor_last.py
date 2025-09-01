@@ -1858,6 +1858,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from typing import Dict, List, Optional, Tuple
 from itertools import combinations
+import math
 
 # Настройка логирования
 logging.basicConfig(
@@ -1867,8 +1868,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Настройки
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_IDS = [int(chat_id) for chat_id in os.getenv("CHAT_IDS", "").split(",") if chat_id]
+#BOT_TOKEN = os.getenv("BOT_TOKEN") #8060812740:AAEBXpMOoCZ2RdD8JY7pO0EXf0aQQN6jQJg
+
+#CHAT_IDS = [6192278046, 306507209]
+#CHAT_IDS = [int(chat_id) for chat_id in os.getenv("CHAT_IDS", "").split(",") if chat_id]
+
+BOT_TOKEN = "8060812740:AAEBXpMOoCZ2RdD8JY7pO0EXf0aQQN6jQJg"
+CHAT_IDS = [6192278046, 306507209]
 RATE_THRESHOLD = 8.0
 LIQUIDITY_THRESHOLD = 1_000_000
 TRUSTED_BY_ALLOWED = ['Steakhouse', 'Gauntlet']

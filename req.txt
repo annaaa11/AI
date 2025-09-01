@@ -4,3 +4,4 @@ tqdm==4.66.1
 webdriver-manager==4.0.2
 psutil==5.9.5
 beautifulsoup4
+pandas
