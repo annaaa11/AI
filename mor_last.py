@@ -1875,9 +1875,9 @@ logger = logging.getLogger(__name__)
 
 BOT_TOKEN = "8060812740:AAEBXpMOoCZ2RdD8JY7pO0EXf0aQQN6jQJg"
 CHAT_IDS = [6192278046]
-RATE_THRESHOLD = 15.0
+RATE_THRESHOLD = 12.0
 LIQUIDITY_THRESHOLD = 1_0_000
-TRUSTED_BY_ALLOWED = ['Steakhouse', 'Gauntlet']
+TRUSTED_BY_ALLOWED = ['Steakhouse', 'Gauntlet', 'Mevcapital']
 MAX_PAGES = 38
 MAX_TOTAL_INVESTMENT = 200_000
 CHAIN_ID = 1
@@ -1970,8 +1970,8 @@ def convert_to_number(value):
 
 def clean_name(name):
     name = name.replace('.Svg', '').replace('.svg', '').replace('-', ' ').title()
-    if name.lower() == 'mevcapital':
-        return 'MEV Capital'
+    #if name.lower() == 'mevcapital':
+     #   return 'MEV Capital'
     return name
 
 def extract_trusted_by_names(col, driver):
