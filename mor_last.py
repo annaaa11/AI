@@ -2055,7 +2055,130 @@ def extract_collateral_links(col):
         logger.error(f"Ошибка при извлечении ссылки из Collateral: {e}")
         return None
 
-def parse_and_filter_data(url, rate_threshold, liquidity_threshold, trusted_by_allowed, max_pages, driver, iteration_start_time):
+# def parse_and_filter_data(url, rate_threshold, liquidity_threshold, trusted_by_allowed, max_pages, driver, iteration_start_time):
+#     try:
+#         logger.info(f"Открываем страницу: {url}")
+#         driver.get(url)
+#         logger.info("Ожидаем загрузки таблицы...")
+#         table_selector = 'table'
+#         WebDriverWait(driver, 20).until(
+#             EC.presence_of_element_located((By.CSS_SELECTOR, table_selector))
+#         )
+#         logger.info("Таблица найдена.")
+#         table = driver.find_element(By.CSS_SELECTOR, table_selector)
+#         headers = [th.text.strip() for th in table.find_elements(By.TAG_NAME, 'th')]
+#         logger.info(f"Заголовки: {headers}")
+#         all_data = []
+#
+#         for page in range(1, max_pages + 1):
+#             if time.time() - iteration_start_time > MAX_ITERATION_TIME:
+#                 logger.warning(f"Превышено время итерации ({MAX_ITERATION_TIME} сек). Прерываем парсинг.")
+#                 send_to_telegram(f"Превышено время парсинга ({MAX_ITERATION_TIME} сек).")
+#                 break
+#             logger.info(f"Обработка страницы {page}...")
+#             try:
+#                 WebDriverWait(driver, 20).until(
+#                     EC.presence_of_element_located((By.CSS_SELECTOR, table_selector))
+#                 )
+#                 table = driver.find_element(By.CSS_SELECTOR, table_selector)
+#                 rows = table.find_elements(By.TAG_NAME, 'tr')[1:]
+#                 if not rows:
+#                     logger.info(f"На странице {page} нет строк данных.")
+#                     break
+#                 for row in rows:
+#                     cols = row.find_elements(By.TAG_NAME, 'td')
+#                     row_data = []
+#                     for i, col in enumerate(cols):
+#                         if headers[i] == 'Trusted By':
+#                             row_data.append(extract_trusted_by_names(col, driver))
+#                         elif headers[i] == 'Collateral':
+#                             row_data.append({
+#                                 'text': col.text.strip(),
+#                                 'link': extract_collateral_links(col)
+#                             })
+#                         else:
+#                             row_data.append(col.text.strip())
+#                     all_data.append(row_data)
+#                 logger.info(f"Собрано {len(rows)} строк на странице {page}")
+#                 if page < max_pages:
+#                     try:
+#                         next_button = WebDriverWait(driver, 10).until(
+#                             EC.element_to_be_clickable(
+#                                 (By.CSS_SELECTOR,
+#                                  'button.css-ktorsf:not([disabled]):not([style*="rotate(180deg)"]), '
+#                                  'button:has(svg[icon="ArrowPlain20"]):not([disabled]):not([style*="rotate(180deg)"]), '
+#                                  '[class*="pagination"] button:not([style*="rotate(180deg)"])')
+#                             )
+#                         )
+#                         logger.info("Кнопка 'Next' найдена.")
+#                         next_button.click()
+#                         logger.info("Кликаем по кнопке 'Next'...")
+#                         time.sleep(1)
+#                         WebDriverWait(driver, 20).until(EC.staleness_of(table))
+#                     except Exception as e:
+#                         logger.info(f"Кнопка 'Next' не найдена: {e}")
+#                         next_url = f"{url}?page={page + 1}"
+#                         logger.info(f"Пробуем перейти на страницу {page + 1} через URL: {next_url}")
+#                         driver.get(next_url)
+#                         try:
+#                             WebDriverWait(driver, 20).until(
+#                                 EC.presence_of_element_located((By.CSS_SELECTOR, table_selector))
+#                             )
+#                         except Exception as url_e:
+#                             logger.info(f"Ошибка перехода через URL: {url_e}")
+#                             break
+#             except Exception as page_e:
+#                 logger.error(f"Ошибка обработки страницы {page}: {page_e}")
+#                 break
+#         if not all_data:
+#             logger.warning("Нет собранных данных.")
+#             send_to_telegram("Ошибка: Нет собранных данных с сайта.")
+#             return None
+#         df = pd.DataFrame(all_data, columns=headers)
+#         logger.info(f"Исходный DataFrame:\n{df.to_string()}")
+#         df['text Collateral'] = df['Collateral'].apply(lambda x: x['text'] if isinstance(x, dict) else x)
+#         df['link Collateral'] = df['Collateral'].apply(lambda x: x['link'] if isinstance(x, dict) else None)
+#         df['Rate'] = df['Rate'].apply(convert_to_number)
+#         df['Total Liquidity'] = df['Total Liquidity'].apply(convert_to_number)
+#         logger.info(f"DataFrame после преобразования:\n{df.to_string()}")
+#         df = df.dropna(subset=['Rate', 'Total Liquidity'])
+#         logger.info(f"DataFrame после удаления пустых значений:\n{df.to_string()}")
+#         filtered_df = df[
+#             (df['Rate'] > rate_threshold) &
+#             (df['Total Liquidity'] > liquidity_threshold) &
+#             (df['Trusted By'].apply(lambda x: not trusted_by_allowed or any(name in trusted_by_allowed for name in x)))
+#         ]
+#         logger.info(f"Отфильтрованный DataFrame:\n{filtered_df.to_string()}")
+#         if filtered_df.empty:
+#             logger.warning("Нет строк, удовлетворяющих условиям фильтрации.")
+#             send_to_telegram("Ошибка: Нет строк, удовлетворяющих условиям фильтрации.")
+#             return None
+#         result_df = filtered_df[['text Collateral', 'link Collateral', 'Rate', 'Trusted By', 'Total Liquidity']]
+#         sorted_df = result_df.sort_values(by='Rate', ascending=False)
+#         return sorted_df
+#     except Exception as e:
+#         logger.error(f"Критическая ошибка в parse_and_filter_data: {e}")
+#         send_to_telegram(f"Критическая ошибка в parse_and_filter_data: {e}")
+#         return None
+
+def parse_and_filter_data(url: str, rate_threshold: float, liquidity_threshold: float,
+                          trusted_by_allowed: List[str], max_pages: int, driver,
+                          iteration_start_time: float) -> Optional[pd.DataFrame]:
+    """
+    Парсит данные с сайта Morpho, фильтрует их по заданным критериям и возвращает отфильтрованный DataFrame.
+
+    Args:
+        url: URL страницы для парсинга.
+        rate_threshold: Минимальная процентная ставка для фильтрации.
+        liquidity_threshold: Минимальная ликвидность для фильтрации.
+        trusted_by_allowed: Список разрешенных имен для Trusted By.
+        max_pages: Максимальное количество страниц для парсинга.
+        driver: WebDriver для Selenium.
+        iteration_start_time: Время начала итерации для контроля времени выполнения.
+
+    Returns:
+        Отфильтрованный DataFrame или None, если данные не получены или не прошли фильтры.
+    """
     try:
         logger.info(f"Открываем страницу: {url}")
         driver.get(url)
@@ -2067,7 +2190,7 @@ def parse_and_filter_data(url, rate_threshold, liquidity_threshold, trusted_by_a
         logger.info("Таблица найдена.")
         table = driver.find_element(By.CSS_SELECTOR, table_selector)
         headers = [th.text.strip() for th in table.find_elements(By.TAG_NAME, 'th')]
-        logger.info(f"Заголовки: {headers}")
+        logger.info(f"Заголовки таблицы: {headers}")
         all_data = []
 
         for page in range(1, max_pages + 1):
@@ -2081,7 +2204,7 @@ def parse_and_filter_data(url, rate_threshold, liquidity_threshold, trusted_by_a
                     EC.presence_of_element_located((By.CSS_SELECTOR, table_selector))
                 )
                 table = driver.find_element(By.CSS_SELECTOR, table_selector)
-                rows = table.find_elements(By.TAG_NAME, 'tr')[1:]
+                rows = table.find_elements(By.TAG_NAME, 'tr')[1:]  # Пропускаем заголовок
                 if not rows:
                     logger.info(f"На странице {page} нет строк данных.")
                     break
@@ -2090,7 +2213,9 @@ def parse_and_filter_data(url, rate_threshold, liquidity_threshold, trusted_by_a
                     row_data = []
                     for i, col in enumerate(cols):
                         if headers[i] == 'Trusted By':
-                            row_data.append(extract_trusted_by_names(col, driver))
+                            trusted_by_names = extract_trusted_by_names(col, driver)
+                            logger.debug(f"Извлечены Trusted By для строки: {trusted_by_names}")
+                            row_data.append(trusted_by_names)
                         elif headers[i] == 'Collateral':
                             row_data.append({
                                 'text': col.text.strip(),
@@ -2143,11 +2268,13 @@ def parse_and_filter_data(url, rate_threshold, liquidity_threshold, trusted_by_a
         logger.info(f"DataFrame после преобразования:\n{df.to_string()}")
         df = df.dropna(subset=['Rate', 'Total Liquidity'])
         logger.info(f"DataFrame после удаления пустых значений:\n{df.to_string()}")
+        logger.info(f"Фильтрация по Trusted By: {trusted_by_allowed}")
+        logger.info(f"Trusted By в DataFrame:\n{df[['text Collateral', 'Trusted By']].to_string()}")
         filtered_df = df[
             (df['Rate'] > rate_threshold) &
             (df['Total Liquidity'] > liquidity_threshold) &
-            (df['Trusted By'].apply(lambda x: not trusted_by_allowed or any(name in trusted_by_allowed for name in x)))
-        ]
+            (df['Trusted By'].apply(lambda x: any(name in trusted_by_allowed for name in x)))
+            ]
         logger.info(f"Отфильтрованный DataFrame:\n{filtered_df.to_string()}")
         if filtered_df.empty:
             logger.warning("Нет строк, удовлетворяющих условиям фильтрации.")
@@ -2155,6 +2282,7 @@ def parse_and_filter_data(url, rate_threshold, liquidity_threshold, trusted_by_a
             return None
         result_df = filtered_df[['text Collateral', 'link Collateral', 'Rate', 'Trusted By', 'Total Liquidity']]
         sorted_df = result_df.sort_values(by='Rate', ascending=False)
+        logger.info(f"Итоговый DataFrame после сортировки:\n{sorted_df.to_string()}")
         return sorted_df
     except Exception as e:
         logger.error(f"Критическая ошибка в parse_and_filter_data: {e}")
