@@ -1867,6 +1867,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 # Настройки
 #BOT_TOKEN = os.getenv("BOT_TOKEN") #8060812740:AAEBXpMOoCZ2RdD8JY7pO0EXf0aQQN6jQJg
 
