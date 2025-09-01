@@ -1883,6 +1883,8 @@ MAX_TOTAL_INVESTMENT = 200_000
 CHAIN_ID = 1
 URL = "https://app.morpho.org/ethereum/borrow"
 MAX_ITERATION_TIME = 1800  # 30 минут в секундах
+MIN_INTERVAL = 7200 - 1800  # 2 hours minus 30 minutes
+
 
 # def send_to_telegram(message):
 #     """Отправляет сообщение в Telegram."""
@@ -2431,18 +2433,18 @@ def calculate_optimal_investment(projects_data: List[Dict], max_total_investment
     logger.info(f"Результаты распределения: {results}")
     return results
 
-
 def main():
-    # Check if another instance is running
+    # Check if another instance ran too recently
     lock_file = "/tmp/morpho_scraper.lock"
     if os.path.exists(lock_file):
         with open(lock_file, "r") as f:
             last_run = float(f.read())
-        if time.time() - last_run < 7200 - 1800:  # Less than 2 hours - 30 minutes
-            logger.info("Другая итерация уже выполняется. Пропуск.")
-            send_to_telegram("Пропуск: Другая итерация уже выполняется.")
+        if time.time() - last_run < MIN_INTERVAL:
+            logger.info(f"Пропуск: Последний запуск был {time.time() - last_run:.2f} секунд назад, менее {MIN_INTERVAL} секунд.")
+            send_to_telegram(f"Пропуск: Последний запуск был недавно. Следующий запуск через ~{int((MIN_INTERVAL - (time.time() - last_run)) / 60)} минут.")
             return
 
+    # Update lock file
     with open(lock_file, "w") as f:
         f.write(str(time.time()))
 
@@ -2519,9 +2521,11 @@ def main():
             ])
             logger.info(f"Итоговые результаты:\n{results_df.to_string(index=False)}")
             message = "=== Итоговые результаты распределения капитала ===\n\n"
-            message += "Вариант 1 (без ограничений на утилизацию):\n"
+            message += "*Вариант 1 (без ограничений на утилизацию)*:\n"
+            has_default_investments = False
             for _, row in results_df.iterrows():
                 if row['Default Investment (USD)'] > 0:
+                    has_default_investments = True
                     message += (
                         f"*Рынок*: {row['Market']}\n"
                         f"*Trusted By*: {row['Trusted By']}\n"
@@ -2532,10 +2536,14 @@ def main():
                         f"*Утилизация*: {row['Default Utilization (%)']:.2f}%\n"
                         f"---\n"
                     )
+            if not has_default_investments:
+                message += "Нет инвестиций для Варианта 1.\n"
             message += f"*Общая дневная прибыль*: ${results_df['Default Total Profit (USD)'].iloc[0]:,.2f}\n\n"
-            message += "Вариант 2 (ограничение утилизации > 90%):\n"
+            message += "*Вариант 2 (ограничение утилизации > 90%)*:\n"
+            has_constrained_investments = False
             for _, row in results_df.iterrows():
                 if row['Constrained Investment (USD)'] > 0:
+                    has_constrained_investments = True
                     message += (
                         f"*Рынок*: {row['Market']}\n"
                         f"*Trusted By*: {row['Trusted By']}\n"
@@ -2546,6 +2554,8 @@ def main():
                         f"*Утилизация*: {row['Constrained Utilization (%)']:.2f}%\n"
                         f"---\n"
                     )
+            if not has_constrained_investments:
+                message += "Нет инвестиций для Варианта 2.\n"
             message += f"*Общая дневная прибыль*: ${results_df['Constrained Total Profit (USD)'].iloc[0]:,.2f}\n"
             send_to_telegram(message)
         else:
@@ -2562,6 +2572,137 @@ def main():
         logger.info(f"Итерация завершена за {elapsed_time:.2f} секунд")
         if os.path.exists(lock_file):
             os.remove(lock_file)
+
+# def main():
+#     # Check if another instance is running
+#     lock_file = "/tmp/morpho_scraper.lock"
+#     if os.path.exists(lock_file):
+#         with open(lock_file, "r") as f:
+#             last_run = float(f.read())
+#         if time.time() - last_run < 7200 - 1800:  # Less than 2 hours - 30 minutes
+#             logger.info("Другая итерация уже выполняется. Пропуск.")
+#             send_to_telegram("Пропуск: Другая итерация уже выполняется.")
+#             return
+#
+#     with open(lock_file, "w") as f:
+#         f.write(str(time.time()))
+#
+#     iteration_start_time = time.time()
+#     logger.info("Запуск Background Worker")
+#     send_to_telegram("Тест: Background Worker запущен")
+#     driver = None
+#     try:
+#         driver = get_driver()
+#         filtered_data = parse_and_filter_data(URL, RATE_THRESHOLD, LIQUIDITY_THRESHOLD, TRUSTED_BY_ALLOWED, MAX_PAGES, driver, iteration_start_time)
+#         if filtered_data is None or filtered_data.empty:
+#             logger.error("Не удалось получить данные или данные не соответствуют фильтрам.")
+#             send_to_telegram("Ошибка: Данные не получены или пусты.")
+#             return
+#         logger.info(f"Отфильтрованные данные:\n{filtered_data.to_string()}")
+#         projects_data = []
+#         for index, row in filtered_data.iterrows():
+#             if time.time() - iteration_start_time > MAX_ITERATION_TIME:
+#                 logger.warning(f"Превышено время итерации ({MAX_ITERATION_TIME} сек). Прерываем обработку.")
+#                 send_to_telegram(f"Превышено время обработки ({MAX_ITERATION_TIME} сек).")
+#                 break
+#             market_name = row['text Collateral']
+#             market_url = row['link Collateral']
+#             trusted_by = ', '.join(row['Trusted By'])
+#             logger.info(f"Обработка рынка: {market_name}, URL: {market_url}")
+#             unique_key = extract_unique_key(market_url, driver)
+#             logger.info(f"Извлеченный unique_key: {unique_key}")
+#             if not unique_key:
+#                 logger.warning(f"Пропуск рынка {market_name}: не удалось извлечь unique_key.")
+#                 continue
+#             total_borrow, total_supply, borrow_apy, utilization = get_morpho_data(unique_key, CHAIN_ID)
+#             logger.info(f"API данные для {market_name}: Total Borrow={total_borrow}, Total Supply={total_supply}, "
+#                         f"Borrow APY={borrow_apy}, Utilization={utilization}")
+#             if all(v is not None for v in [total_borrow, total_supply, borrow_apy, utilization]):
+#                 projects_data.append({
+#                     'Market': market_name,
+#                     'Link': market_url,
+#                     'Trusted By': trusted_by,
+#                     'Rate': row['Rate'],
+#                     'Total Borrow': total_borrow,
+#                     'Total Supply': total_supply,
+#                     'Borrow APY': borrow_apy,
+#                     'Utilization': utilization
+#                 })
+#                 logger.info(f"Добавлен рынок: {market_name}, Total Borrow={total_borrow:,.2f}, "
+#                             f"Total Supply={total_supply:,.2f}, Borrow APY={borrow_apy:.2f}%, Utilization={utilization:.2f}%")
+#             else:
+#                 logger.warning(f"Не удалось получить данные для рынка: {market_name}")
+#         if not projects_data:
+#             logger.error("Список projects_data пуст.")
+#             send_to_telegram("Ошибка: Список markets пуст. Проверьте API или фильтры.")
+#             return
+#         logger.info(f"Собранные проекты ({len(projects_data)}): {projects_data}")
+#         results = calculate_optimal_investment(projects_data, max_total_investment=MAX_TOTAL_INVESTMENT)
+#         logger.info(f"Результаты распределения капитала: {results}")
+#         if results:
+#             results_df = pd.DataFrame([
+#                 {
+#                     'Market': r['Market'],
+#                     'Trusted By': r['Trusted By'],
+#                     'Link': r['Link'],
+#                     'Default Investment (USD)': r['default']['optimal_investment'],
+#                     'Default Daily Profit (USD)': r['default']['max_profit'],
+#                     'Default Lend APR (%)': r['default']['optimal_lend_apr'],
+#                     'Default Utilization (%)': r['default']['optimal_utilization'],
+#                     'Default Total Profit (USD)': r['default']['total_profit'],
+#                     'Constrained Investment (USD)': r['v2_utilization_constrained']['optimal_investment'],
+#                     'Constrained Daily Profit (USD)': r['v2_utilization_constrained']['max_profit'],
+#                     'Constrained Lend APR (%)': r['v2_utilization_constrained']['optimal_lend_apr'],
+#                     'Constrained Utilization (%)': r['v2_utilization_constrained']['optimal_utilization'],
+#                     'Constrained Total Profit (USD)': r['v2_utilization_constrained']['total_profit']
+#                 }
+#                 for r in results
+#             ])
+#             logger.info(f"Итоговые результаты:\n{results_df.to_string(index=False)}")
+#             message = "=== Итоговые результаты распределения капитала ===\n\n"
+#             message += "Вариант 1 (без ограничений на утилизацию):\n"
+#             for _, row in results_df.iterrows():
+#                 if row['Default Investment (USD)'] > 0:
+#                     message += (
+#                         f"*Рынок*: {row['Market']}\n"
+#                         f"*Trusted By*: {row['Trusted By']}\n"
+#                         f"*Ссылка*: {row['Link']}\n"
+#                         f"*Инвестиция*: ${row['Default Investment (USD)']:,.2f}\n"
+#                         f"*Дневная прибыль*: ${row['Default Daily Profit (USD)']:,.2f}\n"
+#                         f"*Lend APR*: {row['Default Lend APR (%)']:.2f}%\n"
+#                         f"*Утилизация*: {row['Default Utilization (%)']:.2f}%\n"
+#                         f"---\n"
+#                     )
+#             message += f"*Общая дневная прибыль*: ${results_df['Default Total Profit (USD)'].iloc[0]:,.2f}\n\n"
+#             message += "Вариант 2 (ограничение утилизации > 90%):\n"
+#             for _, row in results_df.iterrows():
+#                 if row['Constrained Investment (USD)'] > 0:
+#                     message += (
+#                         f"*Рынок*: {row['Market']}\n"
+#                         f"*Trusted By*: {row['Trusted By']}\n"
+#                         f"*Ссылка*: {row['Link']}\n"
+#                         f"*Инвестиция*: ${row['Constrained Investment (USD)']:,.2f}\n"
+#                         f"*Дневная прибыль*: ${row['Constrained Daily Profit (USD)']:,.2f}\n"
+#                         f"*Lend APR*: {row['Constrained Lend APR (%)']:.2f}%\n"
+#                         f"*Утилизация*: {row['Constrained Utilization (%)']:.2f}%\n"
+#                         f"---\n"
+#                     )
+#             message += f"*Общая дневная прибыль*: ${results_df['Constrained Total Profit (USD)'].iloc[0]:,.2f}\n"
+#             send_to_telegram(message)
+#         else:
+#             logger.warning("Результаты распределения капитала пусты.")
+#             send_to_telegram("Ошибка: Результаты распределения капитала пусты.")
+#     except Exception as e:
+#         logger.error(f"Критическая ошибка в main: {e}")
+#         send_to_telegram(f"Критическая ошибка: {e}")
+#     finally:
+#         if driver:
+#             driver.quit()
+#             logger.info("WebDriver закрыт.")
+#         elapsed_time = time.time() - iteration_start_time
+#         logger.info(f"Итерация завершена за {elapsed_time:.2f} секунд")
+#         if os.path.exists(lock_file):
+#             os.remove(lock_file)
 
 if __name__ == "__main__":
     main()
