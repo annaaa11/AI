@@ -1876,12 +1876,13 @@ logger = logging.getLogger(__name__)
 
 
 BOT_TOKEN = "8060812740:AAEBXpMOoCZ2RdD8JY7pO0EXf0aQQN6jQJg"
-CHAT_IDS = [6192278046]
-RATE_THRESHOLD = 5.0
+#CHAT_IDS = [6192278046]
+CHAT_IDS = [6192278046, 306507209]
+RATE_THRESHOLD = 15.0
 LIQUIDITY_THRESHOLD = 1_0_000
-#TRUSTED_BY_ALLOWED = ['Steakhouse', 'Gauntlet', 'Mevcapital']
-TRUSTED_BY_ALLOWED = ['Mevcapital']
-MAX_PAGES = 10
+TRUSTED_BY_ALLOWED = ['Steakhouse', 'Gauntlet', 'Mevcapital', 'Spark']
+#TRUSTED_BY_ALLOWED = ['Mevcapital']
+MAX_PAGES = 38
 MAX_TOTAL_INVESTMENT = 200_000
 CHAIN_ID = 1
 URL = "https://app.morpho.org/ethereum/borrow"
