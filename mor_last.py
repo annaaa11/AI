@@ -1874,13 +1874,14 @@ logger = logging.getLogger(__name__)
 #CHAT_IDS = [6192278046, 306507209]
 #CHAT_IDS = [int(chat_id) for chat_id in os.getenv("CHAT_IDS", "").split(",") if chat_id]
 
+
 BOT_TOKEN = "8060812740:AAEBXpMOoCZ2RdD8JY7pO0EXf0aQQN6jQJg"
 CHAT_IDS = [6192278046]
-RATE_THRESHOLD = 12.0
+RATE_THRESHOLD = 5.0
 LIQUIDITY_THRESHOLD = 1_0_000
 #TRUSTED_BY_ALLOWED = ['Steakhouse', 'Gauntlet', 'Mevcapital']
 TRUSTED_BY_ALLOWED = ['Mevcapital']
-MAX_PAGES = 38
+MAX_PAGES = 10
 MAX_TOTAL_INVESTMENT = 200_000
 CHAIN_ID = 1
 URL = "https://app.morpho.org/ethereum/borrow"
