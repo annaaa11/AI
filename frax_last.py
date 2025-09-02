@@ -19,6 +19,7 @@ import re
 from bs4 import BeautifulSoup
 from itertools import combinations
 
+
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
