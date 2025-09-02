@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # Настройки
-MIN_APR = 10  # Порог для ставки Lend APR
+MIN_APR = 8  # Порог для ставки Lend APR
 BOT_TOKEN = "8218685044:AAESCtKJJEi0guAAH4iOtt_haD7LL_Ukow8"
 CHAT_IDS = [6192278046, 306507209]
 CHECK_INTERVAL = 60 * 60  # Интервал проверки в секундах (1 час)
