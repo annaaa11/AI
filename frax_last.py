@@ -247,199 +247,91 @@ def calculate_profit_for_project(data: Dict, investment: float, v1_model, v2_mod
 
     return daily_profit, new_lend_apr, new_utilization
 
-    def calculate_optimal_investment(projects_data: List[Dict], v1_model, v2_model, delta_time: float = 86400.0,
-                                     max_total_investment: float = 200000) -> List[Dict]:
-        valid_projects_default = []
-        valid_projects_constrained = []
-        for data in projects_data:
-            profit, lend_apr, utilization = calculate_profit_for_project(data, 0, v1_model, v2_model, delta_time,
-                                                                         enforce_v2_utilization=False)
-            if profit is not None:
-                valid_projects_default.append(data)
-            profit, lend_apr, utilization = calculate_profit_for_project(data, 0, v1_model, v2_model, delta_time,
-                                                                         enforce_v2_utilization=True)
-            if profit is not None:
-                valid_projects_constrained.append(data)
+def calculate_optimal_investment(projects_data: List[Dict], v1_model, v2_model, delta_time: float = 86400.0, max_total_investment: float = 200000) -> List[Dict]:
+    """
+    Распределяет капитал между 1–4 проектами с учетом сравнительной доходности, возвращая результаты для двух вариантов:
+    1. Без ограничения на утилизацию.
+    2. Для Variable V2: начальная утилизация >= 76%, new_utilization > 0.76.
+    Args:
+        projects_data: Список словарей с данными по проектам.
+        v1_model: Модель для Variable V1.
+        v2_model: Модель для Variable V2.
+        delta_time: Временной интервал в секундах.
+        max_total_investment: Максимальная сумма для инвестиций.
+    Returns:
+        List[Dict]: Список словарей с результатами для каждой пары в двух вариантах.
+    """
+    # Фильтрация проектов
+    valid_projects_default = []
+    valid_projects_constrained = []
+    for data in projects_data:
+        profit, lend_apr, utilization = calculate_profit_for_project(data, 0, v1_model, v2_model, delta_time, enforce_v2_utilization=False)
+        if profit is not None:
+            valid_projects_default.append(data)
+        profit, lend_apr, utilization = calculate_profit_for_project(data, 0, v1_model, v2_model, delta_time, enforce_v2_utilization=True)
+        if profit is not None:
+            valid_projects_constrained.append(data)
 
-        logger.info(f"Valid projects for default mode: {len(valid_projects_default)}")
-        for project in valid_projects_default:
-            logger.info(
-                f"Project: {project['Link']}, Lend APR: {project.get('Lend APR', 'N/A')}, Utilization: {project.get('Utilization Rate', 'N/A')}")
+    # Логирование валидных проектов
+    logger.info(f"Valid projects for default mode: {len(valid_projects_default)}")
+    for project in valid_projects_default:
+        logger.info(f"Project: {project['Link']}, Lend APR: {project.get('Lend APR', 'N/A')}, Utilization: {project.get('Utilization Rate', 'N/A')}")
+    logger.info(f"Valid projects for constrained mode: {len(valid_projects_constrained)}")
 
-        if not valid_projects_default:
-            logger.info("Ни один проект не прошел фильтрацию для варианта 1")
-            return []
+    if not valid_projects_default:
+        logger.info("Ни один проект не прошел фильтрацию для варианта 1")
+        return []
 
-        step = 1000  # Reduced step size for finer allocation
-        results = []
+    step = 5000  # Уменьшенный шаг для более точного распределения
+    results = []
 
-        def distribute_capital(projects: List[Dict], enforce_v2_utilization: bool) -> Tuple[float, Dict]:
-            best_total_profit = 0
-            best_investments = {}
-            for num_projects in range(1, min(5, len(projects) + 1)):
-                for combo in combinations(projects, num_projects):
-                    current_investments = {data['Link']: 0 for data in combo}
-                    remaining_capital = max_total_investment
-                    total_profit = 0
-                    while remaining_capital >= step:
-                        best_additional_profit = float('-inf')
-                        best_project = None
-                        best_new_investment = None
-                        for data in combo:
-                            current_investment = current_investments[data['Link']]
-                            new_investment = current_investment + step
-                            max_investment = get_max_investment_for_v2_utilization(
-                                data) if enforce_v2_utilization else max_total_investment
-                            max_investment = min(max_investment, parse_dollar_amount(data.get("Reserve Size", "0"),
-                                                                                     is_reserve_size=True) * 2)
-                            if new_investment > max_investment or new_investment > remaining_capital:
-                                continue
-                            profit, lend_apr, utilization = calculate_profit_for_project(data, new_investment, v1_model,
-                                                                                         v2_model, delta_time,
-                                                                                         enforce_v2_utilization)
-                            if profit is None:
-                                continue
-                            current_profit, _, _ = calculate_profit_for_project(data, current_investment, v1_model,
-                                                                                v2_model, delta_time,
-                                                                                enforce_v2_utilization) or (0, 0, 0)
-                            additional_profit = profit - current_profit
-                            logger.debug(
-                                f"Project: {data['Link']}, Investment: {new_investment}, Additional Profit: {additional_profit}")
-                            if additional_profit > best_additional_profit:
-                                best_additional_profit = additional_profit
-                                best_project = data
-                                best_new_investment = new_investment
-                        if best_project is None:
-                            break
-                        current_investments[best_project['Link']] = best_new_investment
-                        remaining_capital -= step
-                        total_profit += best_additional_profit
-                    if total_profit > best_total_profit:
-                        best_total_profit = total_profit
-                        best_investments = current_investments
-            return best_total_profit, best_investments
+    def distribute_capital(projects: List[Dict], enforce_v2_utilization: bool) -> Tuple[float, Dict]:
+        best_total_profit = 0
+        best_investments = {}
+        for num_projects in range(1, min(5, len(projects) + 1)):
+            for combo in combinations(projects, num_projects):
+                current_investments = {data['Link']: 0 for data in combo}
+                remaining_capital = max_total_investment
+                total_profit = 0
+                while remaining_capital >= step:
+                    best_additional_profit = 0
+                    best_project = None
+                    best_new_investment = None
+                    for data in combo:
+                        current_investment = current_investments[data['Link']]
+                        new_investment = current_investment + step
+                        max_investment = get_max_investment_for_v2_utilization(data) if enforce_v2_utilization else max_total_investment
+                        max_investment = min(max_investment, parse_dollar_amount(data.get("Reserve Size", "0"), is_reserve_size=True) * 2)  # Ограничение по резерву
+                        if new_investment > max_investment or new_investment > remaining_capital:
+                            continue
+                        profit, lend_apr, utilization = calculate_profit_for_project(data, new_investment, v1_model, v2_model, delta_time, enforce_v2_utilization)
+                        if profit is None:
+                            continue
+                        current_profit, _, _ = calculate_profit_for_project(data, current_investment, v1_model, v2_model, delta_time, enforce_v2_utilization) or (0, 0, 0)
+                        additional_profit = profit - current_profit
+                        logger.debug(f"Project: {data['Link']}, Investment: {new_investment}, Additional Profit: {additional_profit}, New APR: {lend_apr}, New Utilization: {utilization}")
+                        if additional_profit > best_additional_profit:
+                            best_additional_profit = additional_profit
+                            best_project = data
+                            best_new_investment = new_investment
+                    if best_project is None:
+                        break
+                    current_investments[best_project['Link']] = best_new_investment
+                    remaining_capital -= step
+                    total_profit += best_additional_profit
+                if total_profit > best_total_profit:
+                    best_total_profit = total_profit
+                    best_investments = current_investments
+        return best_total_profit, best_investments
 
-        # Rest of the function remains the same
-
-        # Rest of the function remains the same
-
-# def calculate_optimal_investment(projects_data: List[Dict], v1_model, v2_model, delta_time: float = 86400.0,
-#                                  max_total_investment: float = 200000) -> List[Dict]:
-#     """
-#     Распределяет капитал между 1–4 проектами с учетом сравнительной доходности, возвращая результаты для двух вариантов:
-#     1. Без ограничения на утилизацию.
-#     2. Для Variable V2: начальная утилизация >= 76%, new_utilization > 0.76.
-#
-#     Args:
-#         projects_data: Список словарей с данными по проектам.
-#         v1_model: Модель для Variable V1.
-#         v2_model: Модель для Variable V2.
-#         delta_time: Временной интервал в секундах.
-#         max_total_investment: Максимальная сумма для инвестиций.
-#
-#     Returns:
-#         List[Dict]: Список словарей с результатами для каждой пары в двух вариантах.
-#     """
-#     # Фильтрация проектов
-#     valid_projects_default = []
-#     valid_projects_constrained = []
-#     for data in projects_data:
-#         profit, lend_apr, utilization = calculate_profit_for_project(data, 0, v1_model, v2_model, delta_time,
-#                                                                      enforce_v2_utilization=False)
-#         if profit is not None:
-#             valid_projects_default.append(data)
-#         profit, lend_apr, utilization = calculate_profit_for_project(data, 0, v1_model, v2_model, delta_time,
-#                                                                      enforce_v2_utilization=True)
-#         if profit is not None:
-#             valid_projects_constrained.append(data)
-#
-#     if not valid_projects_default:
-#         logger.info("Ни один проект не прошел фильтрацию для варианта 1")
-#         return []
-#
-#     step = 5000
-#     results = []
-#
-#     def distribute_capital(projects: List[Dict], enforce_v2_utilization: bool) -> Tuple[float, Dict]:
-#         best_total_profit = 0
-#         best_investments = {}
-#
-#         # Перебираем комбинации от 1 до 4 проектов
-#         for num_projects in range(1, min(5, len(projects) + 1)):
-#             for combo in combinations(projects, num_projects):
-#                 current_investments = {data['Link']: 0 for data in combo}
-#                 remaining_capital = max_total_investment
-#                 total_profit = 0
-#
-#                 while remaining_capital >= step:
-#                     best_additional_profit = 0
-#                     best_project = None
-#                     best_new_investment = None
-#
-#                     # Проверяем прирост прибыли
-#                     for data in combo:
-#                         current_investment = current_investments[data['Link']]
-#                         new_investment = current_investment + step
-#                         max_investment = get_max_investment_for_v2_utilization(
-#                             data) if enforce_v2_utilization else max_total_investment
-#                         if new_investment > max_investment:
-#                             continue
-#                         profit, lend_apr, utilization = calculate_profit_for_project(data, new_investment, v1_model,
-#                                                                                      v2_model, delta_time,
-#                                                                                      enforce_v2_utilization)
-#                         if profit is None:
-#                             continue
-#                         current_profit, _, _ = calculate_profit_for_project(data, current_investment, v1_model,
-#                                                                             v2_model, delta_time,
-#                                                                             enforce_v2_utilization) or (0, 0, 0)
-#                         additional_profit = profit - current_profit
-#                         if additional_profit > best_additional_profit:
-#                             best_additional_profit = additional_profit
-#                             best_project = data
-#                             best_new_investment = new_investment
-#
-#                     if best_project is None:
-#                         break
-#
-#                     current_investments[best_project['Link']] = best_new_investment
-#                     remaining_capital -= step
-#                     total_profit += best_additional_profit
-#
-#                 # Формируем результат для комбинации
-#                 combo_investments = {}
-#                 for data in combo:
-#                     investment = current_investments[data['Link']]
-#                     if investment > 0:
-#                         profit, lend_apr, utilization = calculate_profit_for_project(data, investment, v1_model,
-#                                                                                      v2_model, delta_time,
-#                                                                                      enforce_v2_utilization)
-#                         combo_investments[data['Link']] = {
-#                             'investment': investment,
-#                             'daily_profit': profit,
-#                             'lend_apr': lend_apr,
-#                             'utilization': utilization
-#                         }
-#
-#                 if total_profit > best_total_profit:
-#                     best_total_profit = total_profit
-#                     best_investments = combo_investments
-#
-#         return best_total_profit, best_investments
-
-    # Вариант 1: Без ограничения на утилизацию
     total_profit_default, investments_default = distribute_capital(valid_projects_default, enforce_v2_utilization=False)
+    total_profit_constrained, investments_constrained = distribute_capital(valid_projects_constrained, enforce_v2_utilization=True)
 
-    # Вариант 2: С ограничением на утилизацию для V2
-    total_profit_constrained, investments_constrained = distribute_capital(valid_projects_constrained,
-                                                                           enforce_v2_utilization=True)
-
-    # Формируем результаты для каждой пары
+    # Формирование результатов для всех пар
     for data in projects_data:
         link = data['Link']
-        default_result = investments_default.get(link,
-                                                 {'investment': 0, 'daily_profit': 0, 'lend_apr': 0, 'utilization': 0})
-        constrained_result = investments_constrained.get(link, {'investment': 0, 'daily_profit': 0, 'lend_apr': 0,
-                                                                'utilization': 0})
+        default_result = investments_default.get(link, {'investment': 0, 'daily_profit': 0, 'lend_apr': 0, 'utilization': 0})
+        constrained_result = investments_constrained.get(link, {'investment': 0, 'daily_profit': 0, 'lend_apr': 0, 'utilization': 0})
         results.append({
             'Link': link,
             'default': {
@@ -460,6 +352,110 @@ def calculate_profit_for_project(data: Dict, investment: float, v1_model, v2_mod
 
     logger.info(f"Результаты распределения: {results}")
     return results
+
+# def calculate_optimal_investment(projects_data: List[Dict], v1_model, v2_model, delta_time: float = 86400.0,
+#                                  max_total_investment: float = 200000) -> List[Dict]:
+#     """
+#     Распределяет капитал между 1–4 проектами с учетом сравнительной доходности, возвращая результаты для двух вариантов:
+#     1. Без ограничения на утилизацию.
+#     2. Для Variable V2: начальная утилизация >= 76%, new_utilization > 0.76.Args:
+#     projects_data: Список словарей с данными по проектам.
+#     v1_model: Модель для Variable V1.
+#     v2_model: Модель для Variable V2.
+#     delta_time: Временной интервал в секундах.
+#     max_total_investment: Максимальная сумма для инвестиций.
+#
+# Returns:
+#     List[Dict]: Список словарей с результатами для каждой пары в двух вариантах.
+# """
+# # Фильтрация проектов
+# valid_projects_default = []
+# valid_projects_constrained = []
+# for data in projects_data:
+#     profit, lend_apr, utilization = calculate_profit_for_project(data, 0, v1_model, v2_model, delta_time,
+#                                                                  enforce_v2_utilization=False)
+#     if profit is not None:
+#         valid_projects_default.append(data)
+#     profit, lend_apr, utilization = calculate_profit_for_project(data, 0, v1_model, v2_model, delta_time,
+#                                                                  enforce_v2_utilization=True)
+#     if profit is not None:
+#         valid_projects_constrained.append(data)
+#
+# if not valid_projects_default:
+#     logger.info("Ни один проект не прошел фильтрацию для варианта 1")
+#     return []
+#
+# step = 5000
+# results = []
+#
+# def distribute_capital(projects: List[Dict], enforce_v2_utilization: bool) -> Tuple[float, Dict]:
+#     best_total_profit = 0
+#     best_investments = {}
+#
+#     # Перебираем комбинации от 1 до 4 проектов
+#     for num_projects in range(1, min(5, len(projects) + 1)):
+#         for combo in combinations(projects, num_projects):
+#             current_investments = {data['Link']: 0 for data in combo}
+#             remaining_capital = max_total_investment
+#             total_profit = 0
+#
+#             while remaining_capital >= step:
+#                 best_additional_profit = 0
+#                 best_project = None
+#                 best_new_investment = None
+#
+#                 # Проверяем прирост прибыли
+#                 for data in combo:
+#                     current_investment = current_investments[data['Link']]
+#                     new_investment = current_investment + step
+#                     max_investment = get_max_investment_for_v2_utilization(
+#                         data) if enforce_v2_utilization else max_total_investment
+#                     if new_investment > max_investment:
+#                         continue
+#                     profit, lend_apr, utilization = calculate_profit_for_project(data, new_investment, v1_model,
+#                                                                                  v2_model, delta_time,
+#                                                                                  enforce_v2_utilization)
+#                     if profit is None:
+#                         continue
+#                     current_profit, _, _ = calculate_profit_for_project(data, current_investment, v1_model,
+#                                                                         v2_model, delta_time,
+#                                                                         enforce_v2_utilization) or (0, 0, 0)
+#                     additional_profit = profit - current_profit
+#                     if additional_profit > best_additional_profit:
+#                         best_additional_profit = additional_profit
+#                         best_project = data
+#                         best_new_investment = new_investment
+#
+#                 if best_project is None:
+#                     break
+#
+#                 current_investments[best_project['Link']] = best_new_investment
+#                 remaining_capital -= step
+#                 total_profit += best_additional_profit
+#
+#             # Формируем результат для комбинации
+#             combo_investments = {}
+#             for data in combo:
+#                 investment = current_investments[data['Link']]
+#                 if investment > 0:
+#                     profit, lend_apr, utilization = calculate_profit_for_project(data, investment, v1_model,
+#                                                                                  v2_model, delta_time,
+#                                                                                  enforce_v2_utilization)
+#                     combo_investments[data['Link']] = {
+#                         'investment': investment,
+#                         'daily_profit': profit,
+#                         'lend_apr': lend_apr,
+#                         'utilization': utilization
+#                     }
+#
+#             if total_profit > best_total_profit:
+#                 best_total_profit = total_profit
+#                 best_investments = combo_investments
+#
+#     return best_total_profit, best_investments
+
+
+
 
 
 def send_to_telegram(message):
