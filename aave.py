@@ -469,12 +469,11 @@ CHAT_IDS = [6192278046, 306507209]  # список id пользователей
 def send_to_telegram(message):
     url_base = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     for chat_id in CHAT_IDS:
-        payload = {
-            "chat_id": chat_id,
-            "text": message
-        }
+        payload = {"chat_id": chat_id, "text": message}
         try:
-            requests.post(url_base, data=payload)
+            resp = requests.post(url_base, data=payload, timeout=10)
+            if resp.status_code != 200:
+                print(f"Ошибка Telegram ({chat_id}): {resp.text}")
         except Exception as e:
             print(f"Ошибка при отправке в чат {chat_id}: {e}")
 
@@ -635,6 +634,10 @@ def process_transactions():
 def home():
     return "Parser is running!"
 
+@app.route("/test")
+def test():
+    send_to_telegram("✅ Тестовое сообщение от Render")
+    return {"status": "sent"}
 
 @app.route("/status")
 def status():
@@ -644,16 +647,19 @@ def status():
 def run_background():
     # Thread для транзакций
     tx_thread = threading.Thread(target=process_transactions)
-    tx_thread.daemon = True
+    tx_thread.daemon = False
     tx_thread.start()
 
     # Thread для ParaSwap алертов (каждые 30 мин)
     alert_thread = threading.Thread(target=process_paraswap_alert)
-    alert_thread.daemon = True
+    alert_thread.daemon = False
     alert_thread.start()
 
 
 if __name__ == "__main__":
     run_background()
-    app.run(host="0.0.0.0", port=10000)
+    import os
+
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    #app.run(host="0.0.0.0", port=10000)
 
