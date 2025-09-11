@@ -649,13 +649,13 @@ def status():
 
 def run_background():
     # Thread для транзакций
-    tx_thread = threading.Thread(target=process_transactions)
-    tx_thread.daemon = False
-    tx_thread.start()
+    # tx_thread = threading.Thread(target=process_transactions)
+    # tx_thread.daemon = True
+    # tx_thread.start()
 
     # Thread для ParaSwap алертов (каждые 30 мин)
     alert_thread = threading.Thread(target=process_paraswap_alert)
-    alert_thread.daemon = False
+    alert_thread.daemon = True
     alert_thread.start()
 
 run_background()
