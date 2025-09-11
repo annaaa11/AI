@@ -1233,7 +1233,6 @@ ADDRESSES = [
     "0x38c503a438185cde29b5cf4dc1442fd6f074f1cc",
     "0x285866acb0d60105b4ed350a463361c2d9afa0e2",
     "0x38a5357ce55c81add62abc84fb32981e2626adef",
-    "0x4579a27af00a62c0eb156349f31b345c08386419",
 ]
 BOT_TOKEN = "7652720412:AAHEpoBovaezzfQqrmoli_3uY-EfzYFweZ0"
 CHAT_IDS = [6192278046, 306507209]
@@ -1355,7 +1354,7 @@ def get_1inch_rate():
 def get_paraswap_quote(amount_usdt):
     USDT_ADDRESS = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
     USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
-    SLIPPAGE = Decimal("0.0001")  # 0.01%
+    SLIPPAGE = Decimal("0")  # 0.01%
     NETWORK = 1
     INCLUDE_DEXES = "FluidDex"
     PARASWAP_QUOTE_URL = "https://api.paraswap.io/prices"
@@ -1404,7 +1403,7 @@ def get_1inch_quote(amount_usdt):
         response.raise_for_status()
         data = response.json()
         amount_out = Decimal(data["toTokenAmount"]) / Decimal(10 ** 6)
-        amount_out_with_slippage = amount_out * (1 - Decimal("0.0001"))
+        amount_out_with_slippage = amount_out * (1 - Decimal("0"))
         logger.info(f"1inch quote для {amount_usdt} USDT: {amount_out} USDC")
         return amount_out, amount_out_with_slippage
 
@@ -1447,7 +1446,7 @@ def process_paraswap_alert():
         except Exception as e:
             logger.error(f"Ошибка в process_paraswap_alert: {e}")
 
-        time.sleep(3600)  # 1 час
+        time.sleep(36)  # 1 час
 
 # Остальные функции (process_transactions, routes, run_background) без изменений...
 
