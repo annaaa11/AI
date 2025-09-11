@@ -658,9 +658,10 @@ def run_background():
     alert_thread.daemon = False
     alert_thread.start()
 
+run_background()
 
 if __name__ == "__main__":
-    run_background()
+
     import os
 
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
