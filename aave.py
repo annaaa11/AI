@@ -551,7 +551,7 @@ def get_paraswap_quote(amount_usdt):
 def process_paraswap_alert():
     """Проверка курсов и отправка алерта каждые 30 минут."""
     AMOUNT_USDT = Decimal("1779963")
-    THRESHOLD = Decimal("1.000310") # !!!parametr
+    THRESHOLD = Decimal("1.000210") # !!!parametr
     while True:
         try:
             print(f"[{datetime.now(timezone.utc)}] Проверка ParaSwap курсов...")
