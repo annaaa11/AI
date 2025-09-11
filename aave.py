@@ -314,6 +314,7 @@ ADDRESSES = [
     "0x38c503a438185cde29b5cf4dc1442fd6f074f1cc",
     "0x285866acb0d60105b4ed350a463361c2d9afa0e2",
     "0x38a5357ce55c81add62abc84fb32981e2626adef",
+"0x4579a27af00a62c0eb156349f31b345c08386419",
 ]
 BOT_TOKEN = "7652720412:AAFkPwpqFa3iRr23xw8rE9MYXtj_ptvq6kk"
 CHAT_ID = "6192278046"  # ID пользователя или канала
