@@ -1266,7 +1266,7 @@ def retry_request(func, *args, max_retries=3, **kwargs):
 
 def get_transactions(address):
     url = (
-        f"https://api.etherscan.io/v2/api"
+        f"https://api.etherscan.io/api"
         f"?module=account"
         f"&action=tokentx"
         f"&address={address}"
