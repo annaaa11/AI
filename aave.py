@@ -514,7 +514,7 @@ def get_paraswap_quote(amount_usdt):
     """Получение котировки ParaSwap для указанной суммы USDT."""
     USDT_ADDRESS = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
     USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
-    SLIPPAGE = Decimal("0.001")  # 0.1%
+    SLIPPAGE = Decimal("0.0001")  # 0.01%
     NETWORK = 1
     INCLUDE_DEXES = "FluidDex"
     PARASWAP_QUOTE_URL = "https://api.paraswap.io/prices"
@@ -551,7 +551,7 @@ def get_paraswap_quote(amount_usdt):
 def process_paraswap_alert():
     """Проверка курсов и отправка алерта каждые 30 минут."""
     AMOUNT_USDT = Decimal("1779963")
-    THRESHOLD = Decimal("1.000410")
+    THRESHOLD = Decimal("1.000310") # !!!parametr
     while True:
         try:
             print(f"[{datetime.now(timezone.utc)}] Проверка ParaSwap курсов...")
@@ -564,7 +564,7 @@ def process_paraswap_alert():
             quote_out, quote_out_slippage = get_paraswap_quote(AMOUNT_USDT)
             if quote_out is None or quote_out_slippage is None:
                 print("Не удалось получить котировку, пропуск...")
-                time.sleep(1800)
+                time.sleep(1800) #30
                 continue
 
             para_ratio = quote_out_slippage / AMOUNT_USDT
@@ -583,7 +583,7 @@ def process_paraswap_alert():
         except Exception as e:
             print(f"Ошибка в process_paraswap_alert: {e}")
 
-        time.sleep(1800)  # 30 минут
+        time.sleep(180)  # 30 минут!!!
 
 
 def process_transactions():
