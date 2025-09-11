@@ -514,7 +514,7 @@ def get_paraswap_quote(amount_usdt):
     """Получение котировки ParaSwap для указанной суммы USDT."""
     USDT_ADDRESS = "0xdAC17F958D2ee523a2206206994597C13D831ec7"
     USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
-    SLIPPAGE = Decimal("0.0001")  # 0.01%
+    SLIPPAGE = Decimal("0")  # 0.01%
     NETWORK = 1
     INCLUDE_DEXES = "FluidDex"
     PARASWAP_QUOTE_URL = "https://api.paraswap.io/prices"
@@ -654,3 +654,4 @@ def run_background():
 if __name__ == "__main__":
     run_background()
     app.run(host="0.0.0.0", port=10000)
+
