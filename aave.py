@@ -639,10 +639,13 @@ def test():
     send_to_telegram("✅ Тестовое сообщение от Render")
     return {"status": "sent"}
 
+
 @app.route("/status")
 def status():
-    return {"status": "ok"}
-
+    return {
+        "status": "ok",
+        "threads": [t.name for t in threading.enumerate()]
+    }
 
 def run_background():
     # Thread для транзакций
