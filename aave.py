@@ -1453,7 +1453,7 @@ def process_paraswap_alert():
         except Exception as e:
             logger.error(f"Ошибка в process_paraswap_alert: {e}")
 
-        time.sleep(360)  # 1 час
+        time.sleep(3600)  # 1 час
 
 # Остальные функции (process_transactions, routes, run_background) без изменений...
 
