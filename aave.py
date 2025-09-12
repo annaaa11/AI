@@ -1232,7 +1232,7 @@ API_KEY_ETHERSCAN = "1F4W48VXNQ1CY1YCU9BAD7V27TIY4YDEX4"  # Создайте н�
 ADDRESSES = [
     "0x38c503a438185cde29b5cf4dc1442fd6f074f1cc",
     "0x285866acb0d60105b4ed350a463361c2d9afa0e2",
-    "0x38a5357ce55c81add62abc84fb32981e2626adef",
+ #   "0x38a5357ce55c81add62abc84fb32981e2626adef",
 ]
 BOT_TOKEN = "7652720412:AAHEpoBovaezzfQqrmoli_3uY-EfzYFweZ0"
 CHAT_IDS = [6192278046, 306507209]
@@ -1514,10 +1514,10 @@ def run_background():
         tx_thread.start()
         logger.info("Tx thread started")
 
-        alert_thread = threading.Thread(target=process_paraswap_alert, name="ParaSwapAlert")
-        alert_thread.daemon = True
-        alert_thread.start()
-        logger.info("Alert thread started")
+        # alert_thread = threading.Thread(target=process_paraswap_alert, name="ParaSwapAlert")
+        # alert_thread.daemon = True
+        # alert_thread.start()
+        # logger.info("Alert thread started")
     except Exception as e:
         logger.error(f"Ошибка запуска фоновых потоков: {e}")
 
