@@ -1510,7 +1510,7 @@ def status():
 def run_background():
     try:
         tx_thread = threading.Thread(target=process_transactions, name="TxMonitor")
-        tx_thread.daemon = True
+        tx_thread.daemon = False
         tx_thread.start()
         logger.info("Tx thread started")
 
