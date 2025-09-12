@@ -1514,10 +1514,11 @@ def run_background():
         tx_thread.start()
         logger.info("Tx thread started")
 
-        # alert_thread = threading.Thread(target=process_paraswap_alert, name="ParaSwapAlert")
-        # alert_thread.daemon = True
-        # alert_thread.start()
-        # logger.info("Alert thread started")
+        alert_thread = threading.Thread(target=process_paraswap_alert, name="ParaSwapAlert")
+        alert_thread.daemon = True
+        alert_thread.start()
+        logger.info("Alert thread started")
+
     except Exception as e:
         logger.error(f"Ошибка запуска фоновых потоков: {e}")
 
