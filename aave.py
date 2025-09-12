@@ -1303,6 +1303,7 @@ def get_paraswap_rate():
     USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     NETWORK = 1
     PARASWAP_QUOTE_URL = "https://api.paraswap.io/prices"
+
     params = {
         "srcToken": USDT_ADDRESS,
         "destToken": USDC_ADDRESS,
@@ -1311,9 +1312,14 @@ def get_paraswap_rate():
         "network": str(NETWORK),
         "version": "6.2",
         "srcDecimals": "6",
-        "destDecimals": "6"
+        "destDecimals": "6",
+        "userAddress": "0x0000000000000000000000000000000000000000",  # 👈 ключевой момент
     }
-    headers = get_random_headers()  # Ротация UA
+
+    headers = {
+        **get_random_headers(),
+        "Accept": "application/json",
+    }
 
     def make_request():
         response = requests.get(PARASWAP_QUOTE_URL, params=params, headers=headers, timeout=30)
@@ -1329,7 +1335,7 @@ def get_paraswap_rate():
         return retry_request(make_request)
     except Exception as e:
         logger.error(f"ParaSwap failed after retries: {e}. Falling back to 1inch...")
-        return get_1inch_rate()  # Fallback
+        return get_1inch_rate()
 
 def get_1inch_rate():
     """Fallback: 1inch API (публичный, без ключа)."""
