@@ -1313,7 +1313,7 @@ def get_paraswap_rate():
         "version": "6.2",
         "srcDecimals": "6",
         "destDecimals": "6",
-        "userAddress": "0x0000000000000000000000000000000000000000",  # 👈 ключевой момент
+        "userAddress": "0x0000000000000000000000000000000000000000"  # 👈 ключевой момент
     }
 
     headers = {
@@ -1375,7 +1375,8 @@ def get_paraswap_quote(amount_usdt):
         "includeDEXes": INCLUDE_DEXES,
         "excludeContractMethodsWithoutFeeModel": "true",
         "srcDecimals": "6",
-        "destDecimals": "6"
+        "destDecimals": "6",
+        "userAddress": "0x0000000000000000000000000000000000000000"  # 👈 ключевой момент
     }
     headers = get_random_headers()
 
@@ -1452,7 +1453,7 @@ def process_paraswap_alert():
         except Exception as e:
             logger.error(f"Ошибка в process_paraswap_alert: {e}")
 
-        time.sleep(36)  # 1 час
+        time.sleep(360)  # 1 час
 
 # Остальные функции (process_transactions, routes, run_background) без изменений...
 
@@ -1521,7 +1522,7 @@ def run_background():
         logger.info("Tx thread started")
 
         alert_thread = threading.Thread(target=process_paraswap_alert, name="ParaSwapAlert")
-        alert_thread.daemon = True
+        alert_thread.daemon = False
         alert_thread.start()
         logger.info("Alert thread started")
 
