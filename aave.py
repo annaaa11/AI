@@ -1418,7 +1418,9 @@ def get_1inch_quote(amount_usdt):
 
 def process_paraswap_alert():
     AMOUNT_USDT = Decimal("1779963")
-    THRESHOLD = Decimal("1.000210")
+    THRESHOLD = Decimal("1.000400")
+    THRESHOLD2 = Decimal("1.000150")
+
     logger.info("ParaSwap alert thread started!")
     while True:
         try:
@@ -1438,12 +1440,12 @@ def process_paraswap_alert():
             para_ratio = quote_out_slippage / AMOUNT_USDT
             logger.info(f"ParaSwap отношение (с slippage): {para_ratio:.6f}")
 
-            if market_rate > THRESHOLD or para_ratio > THRESHOLD:
+            if (market_rate >= THRESHOLD and para_ratio >= THRESHOLD) or (market_rate <= THRESHOLD2 and para_ratio <= THRESHOLD2):
                 message = (
                     f"🚨 АЛЕРТ: Высокий курс!\n"
                     f"Текущий курс USDT/USDC = {market_rate:.6f}\n"
                     f"ParaSwap on USDT/USDC = {para_ratio:.6f}\n"
-                    f"(Порог: {THRESHOLD})"
+                    f"(Порог: больше {THRESHOLD} и меньше {THRESHOLD2}"
                 )
                 logger.info(f"Отправляю алерт в Telegram: {message[:100]}...")
                 send_to_telegram(message)
