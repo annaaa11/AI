@@ -4,7 +4,6 @@ FROM python:3.9
 RUN apt-get update && apt-get install -y \
     chromium \
     libxss1 \
-    libappindicator1 \
     fonts-liberation \
     libgbm-dev \
     libasound2 \
@@ -21,7 +20,6 @@ RUN wget -q https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/140.0.73
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
 
 # Копируем код
 COPY render_fluid.py .
