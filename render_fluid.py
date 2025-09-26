@@ -43,14 +43,23 @@ def send_to_telegram(message):
         # except Exception as e:
         #     print(f"Ошибка при отправке в чат {chat_id}: {e}")
 
+from webdriver_manager.chrome import ChromeDriverManager
 
 def parse_immediate_borrowable(page_url):
-    """Парсинг страницы через Selenium и проверка Immediate Borrowable."""
     options = webdriver.ChromeOptions()
     options.add_argument('--headless')
-    options.add_argument('--no-sandbox')  # Необходимо для Render.com
-    options.add_argument('--disable-dev-shm-usage')  # Необходимо для Render.com
-    driver = webdriver.Chrome(service=Service('/usr/bin/chromedriver'), options=options)
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    # Остальной код остаётся без изменений
+
+# def parse_immediate_borrowable(page_url):
+#     """Парсинг страницы через Selenium и проверка Immediate Borrowable."""
+#     options = webdriver.ChromeOptions()
+#     options.add_argument('--headless')
+#     options.add_argument('--no-sandbox')  # Необходимо для Render.com
+#     options.add_argument('--disable-dev-shm-usage')  # Необходимо для Render.com
+#     driver = webdriver.Chrome(service=Service('/usr/bin/chromedriver'), options=options)
 
     try:
         driver.get(page_url)
