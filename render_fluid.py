@@ -44,14 +44,32 @@ def send_to_telegram(message):
         #     print(f"Ошибка при отправке в чат {chat_id}: {e}")
 
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+
 
 def parse_immediate_borrowable(page_url):
     options = webdriver.ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    # Остальной код остаётся без изменений
+
+    # Явно указываем версию ChromeDriver
+    driver_path = ChromeDriverManager(version="140.0.7339.207").install()
+    driver = webdriver.Chrome(service=Service(driver_path), options=options)
+
+    # try:
+    #     driver.get(page_url)
+    #     # Остальной код без изменений
+
+
+# def parse_immediate_borrowable(page_url):
+#     options = webdriver.ChromeOptions()
+#     options.add_argument('--headless')
+#     options.add_argument('--no-sandbox')
+#     options.add_argument('--disable-dev-shm-usage')
+#     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+#     # Остальной код остаётся без изменений
 
 # def parse_immediate_borrowable(page_url):
 #     """Парсинг страницы через Selenium и проверка Immediate Borrowable."""
