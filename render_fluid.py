@@ -43,17 +43,25 @@ def send_to_telegram(message):
         # except Exception as e:
         #     print(f"Ошибка при отправке в чат {chat_id}: {e}")
 
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    import subprocess
 
-def parse_immediate_borrowable(page_url):
-    options = webdriver.ChromeOptions()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    driver = webdriver.Chrome(service=Service('/usr/bin/chromedriver'), options=options)
-    # Остальной код без изменений
+    def check_chromium_version():
+        try:
+            result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
+            print(f"Chromium version: {result.stdout.strip()}")
+        except Exception as e:
+            print(f"Ошибка при проверке версии Chromium: {e}")
+
+    def parse_immediate_borrowable(page_url):
+        check_chromium_version()  # Проверяем версию Chromium
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        driver = webdriver.Chrome(service=Service('/usr/bin/chromedriver'), options=options)
+        # Остальной код без изменений
 
 # def parse_immediate_borrowable(page_url):
 #     options = webdriver.ChromeOptions()
